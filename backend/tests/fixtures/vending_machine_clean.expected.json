@@ -1,0 +1,29 @@
+{
+  "states": 4,
+  "transitions": 3,
+  "state_labels": [
+    "WAIT",
+    "PAID",
+    "PICK",
+    "OUT"
+  ],
+  "event_labels": [
+    "coin",
+    "select",
+    "disp"
+  ],
+  "connections": [
+    [
+      "state-1",
+      "state-2"
+    ],
+    [
+      "state-2",
+      "state-3"
+    ],
+    [
+      "state-3",
+      "state-4"
+    ]
+  ]
+}
