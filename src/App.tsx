@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node, type NodeMouseHandler, type EdgeMouseHandler } from '@xyflow/react';
-import { AlertTriangle, CheckCircle2, CirclePlus, FilePenLine, Home, ImagePlus, Play, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CirclePlus, Download, FileJson, FilePenLine, Home, ImagePlus, Play, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { analyze } from './core/analyzer';
 import { addState, addTransition, removeState, removeTransition, setInitialState, updateState, updateTransitionEvent } from './core/editor';
 import { availableEvents, createSimulation, reset, transition, type Simulation } from './core/simulator';
@@ -8,6 +8,8 @@ import type { AnalysisIssue, StateMachine } from './core/types';
 import { brokenVendingMachine } from './samples/brokenVendingMachine';
 import { vendingMachine } from './samples/vendingMachine';
 import { RecognitionPanel } from './features/recognition/RecognitionPanel';
+import { downloadPng, downloadText, machineToJson, machineToSvg } from './features/export/exportMachine';
+import { loadSavedWorkspace, saveWorkspace } from './features/workspace/storage';
 
 const samples = { valid: vendingMachine, broken: brokenVendingMachine } as const;
 const initialErrorText = { 'missing-initial': '開始状態がないため実行できません。', 'multiple-initial': '開始状態が複数あるため実行できません。' } as const;
@@ -20,20 +22,26 @@ function visibleIssues(issues: AnalysisIssue[]): AnalysisIssue[] {
 }
 
 export function App() {
-  const [screen, setScreen] = useState<'home' | 'workspace'>('home');
-  const [sampleKey, setSampleKey] = useState<keyof typeof samples>('valid');
-  const [machine, setMachine] = useState<StateMachine>(vendingMachine);
-  const [simulation, setSimulation] = useState<Simulation>(() => createSimulation(vendingMachine));
+  const [savedWorkspace] = useState(loadSavedWorkspace);
+  const [screen, setScreen] = useState<'home' | 'workspace'>(() => savedWorkspace?.screen ?? 'home');
+  const [sampleKey, setSampleKey] = useState<keyof typeof samples>(() => savedWorkspace?.sampleKey ?? 'valid');
+  const [machine, setMachine] = useState<StateMachine>(() => savedWorkspace?.machine ?? vendingMachine);
+  const [simulation, setSimulation] = useState<Simulation>(() => createSimulation(savedWorkspace?.machine ?? vendingMachine));
   const [selectedStateId, setSelectedStateId] = useState<string>();
   const [selectedTransitionId, setSelectedTransitionId] = useState<string>();
   const [transitionDraft, setTransitionDraft] = useState({ from: 'idle', to: 'idle', event: '' });
   const [showRecognition, setShowRecognition] = useState(false);
+  const [fileError, setFileError] = useState<string>();
   const issues = useMemo(() => analyze(machine), [machine]);
   const shownIssues = visibleIssues(issues);
   const problemStates = new Set(shownIssues.flatMap((item) => item.stateIds));
   const current = machine.states.find((state) => state.id === simulation.currentStateId);
   const selectedState = machine.states.find((state) => state.id === selectedStateId);
   const selectedTransition = machine.transitions.find((edge) => edge.id === selectedTransitionId);
+
+  useEffect(() => {
+    saveWorkspace({ machine, sampleKey, screen });
+  }, [machine, sampleKey, screen]);
 
   const applyEdit = (edit: (previous: StateMachine) => StateMachine) => {
     setMachine((previous) => { const next = edit(previous); setSimulation(createSimulation(next)); return next; });
@@ -53,18 +61,35 @@ export function App() {
     setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' });
   };
 
+  const importJson = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const candidate = JSON.parse(await file.text()) as Partial<StateMachine>;
+      if (!Array.isArray(candidate.states) || !Array.isArray(candidate.transitions)) throw new Error();
+      openWorkspace(candidate as StateMachine);
+      setFileError(undefined);
+    } catch {
+      setFileError('StateInkのJSONファイルを読み込めませんでした。');
+    }
+  };
+
   if (screen === 'home') return <main className="home-screen">
-    <div className="home-brand"><span className="brand-mark">S</span><strong>StateInk</strong></div>
-    <section className="hero"><p className="eyebrow">STATE MACHINE / VERIFY BEFORE YOU BUILD</p><h1>描いた設計を、<br/>動かして確かめる。</h1><p>紙の状態遷移図を、実行・検証できる設計図へ。</p></section>
-    <nav className="start-options" aria-label="はじめる方法">
-      <button onClick={() => { setScreen('workspace'); setShowRecognition(true); }}><ImagePlus/><span><strong>紙から読み取る</strong><small>写真から編集できる下書きを作る</small></span><b>→</b></button>
-      <button onClick={() => openWorkspace({ states: [], transitions: [] })}><FilePenLine/><span><strong>自分で図を作る</strong><small>空のキャンバスから設計する</small></span><b>→</b></button>
-      <button className="recommended" onClick={() => openWorkspace(brokenVendingMachine, 'broken')}><Sparkles/><span><strong>サンプルを試す</strong><small>問題発見と修正をすぐ体験</small></span><b>→</b></button>
-    </nav>
+    <div className="home-brand"><span className="brand-mark">S</span><strong>StateInk</strong><span className="home-tag">STATE MACHINE REVIEW</span></div>
+    <div className="home-layout"><section className="hero"><p className="eyebrow">VERIFY BEFORE YOU BUILD</p><h1>描いた設計を、<br/>動かして確かめる。</h1><p>紙の状態遷移図を、実行・検証できる設計図へ。</p><div className="hero-proof"><span>編集できる</span><span>その場で実行</span><span>問題操作を表示</span></div></section><div className="home-preview" aria-hidden="true"><div className="preview-state start">待機</div><span className="preview-arrow">coin →</span><div className="preview-state">選択中</div><span className="preview-arrow">select →</span><div className="preview-state warning">売り切れ ⚠</div><div className="preview-finding">refund がないため待機へ戻れません</div></div></div>
+    <section className="home-start"><div><p className="eyebrow">START</p><h2>3つの方法から始められます</h2></div><nav className="start-options" aria-label="はじめる方法">
+        <button onClick={() => { setScreen('workspace'); setShowRecognition(true); }}><ImagePlus/><span><strong>紙から読み取る</strong><small>写真から編集できる下書きを作る</small></span><b>→</b></button>
+        <button onClick={() => openWorkspace({ states: [], transitions: [] })}><FilePenLine/><span><strong>自分で図を作る</strong><small>空のキャンバスから設計する</small></span><b>→</b></button>
+        <button className="recommended" onClick={() => openWorkspace(brokenVendingMachine, 'broken')}><Sparkles/><span><strong>サンプルを試す</strong><small>問題発見と修正をすぐ体験</small></span><b>→</b></button>
+      </nav></section>
+    <section className="home-steps"><p className="eyebrow">HOW IT WORKS</p><div><article><b>01</b><strong>図を編集</strong><span>状態と遷移を整理</span></article><article><b>02</b><strong>操作して実行</strong><span>イベントを順に試す</span></article><article><b>03</b><strong>問題を確認</strong><span>再現手順から修正</span></article></div></section>
   </main>;
 
   return <main>
     <header><div className="brand"><button className="home-link" aria-label="ホームへ戻る" onClick={() => setScreen('home')}><Home size={18}/></button><span className="brand-mark">S</span><div><h1>StateInk</h1><p>描いた設計を、動かして確かめる。</p></div></div><div className="header-actions"><button onClick={() => setShowRecognition(true)}><ImagePlus size={16}/>紙から読み取る</button><label>サンプル<select aria-label="サンプル" value={sampleKey} onChange={(event) => chooseSample(event.target.value as keyof typeof samples)}><option value="valid">正常な自動販売機</option><option value="broken">問題のある自動販売機</option></select></label></div></header>
+    <section className="file-toolbar" aria-label="ファイル操作"><div><button onClick={() => openWorkspace({ states: [], transitions: [] })}><FilePenLine size={15}/>新規作成</button><label className="toolbar-button"><Upload size={15}/>JSON読込<input type="file" accept="application/json,.json" onChange={importJson}/></label></div><div className="export-actions"><span>Export</span><button onClick={() => downloadText('stateink-machine.json', machineToJson(machine), 'application/json')}><FileJson size={15}/>JSON</button><button onClick={() => downloadText('stateink-diagram.svg', machineToSvg(machine), 'image/svg+xml')}><Download size={15}/>SVG</button><button onClick={() => downloadPng(machine).catch(() => setFileError('PNGを作成できませんでした。'))}><Download size={15}/>PNG</button></div></section>
+    {fileError && <p className="file-error" role="alert">{fileError}</p>}
     {showRecognition && <div className="recognition-wrap"><RecognitionPanel onClose={() => setShowRecognition(false)} onConfirm={(next) => { setMachine(next); setSimulation(createSimulation(next)); setShowRecognition(false); setSelectedStateId(undefined); setSelectedTransitionId(undefined); setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' }); }}/></div>}
     <section className="intro"><p className="eyebrow">編集 → 実行 → 自動チェック</p><h2>{sampleKey === 'broken' ? 'まず問題を再現し、refund 遷移を追加して直してみましょう。' : '図を直すと、チェック結果もすぐに変わります。'}</h2><p>{sampleKey === 'broken' ? 'coin → select → sold_out を押すと問題状態へ進みます。売り切れから待機への refund を追加すると警告が消えます。' : '状態を選んで編集するか、下のフォームで遷移を追加してください。編集するとシミュレーターは開始地点へ戻ります。'}</p></section>
     <div className="workspace">
