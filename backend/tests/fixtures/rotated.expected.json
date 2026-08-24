@@ -1,0 +1,17 @@
+{
+  "states": 2,
+  "transitions": 1,
+  "state_labels": [
+    "A",
+    "B"
+  ],
+  "event_labels": [
+    "next"
+  ],
+  "connections": [
+    [
+      "state-1",
+      "state-2"
+    ]
+  ]
+}
