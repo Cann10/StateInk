@@ -1,0 +1,757 @@
+{
+  "source": "FA Database 1.1",
+  "sample_count": 24,
+  "supported_count": 22,
+  "unsupported_count": 2,
+  "overall_metrics": {
+    "expected_states": 118,
+    "state_tp": 113,
+    "expected_transitions": 203,
+    "transition_tp": 192,
+    "expected_connections": 177,
+    "connection_tp": 73,
+    "expected_directions": 203,
+    "direction_tp": 54
+  },
+  "supported_metrics": {
+    "expected_states": 98,
+    "state_tp": 93,
+    "expected_transitions": 126,
+    "transition_tp": 120,
+    "expected_connections": 104,
+    "connection_tp": 52,
+    "expected_directions": 126,
+    "direction_tp": 37
+  },
+  "failures": {
+    "state contour": 5,
+    "line detection": 52,
+    "arrowhead": 22,
+    "source/target association": 106,
+    "direction": 0,
+    "unsupported geometry": 50,
+    "OCR": 0
+  },
+  "per_image": [
+    {
+      "name": "writer000_fa_001",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 3,
+      "state_tp": 3,
+      "overall": {
+        "expected_transitions": 5,
+        "transition_tp": 5,
+        "expected_connections": 4,
+        "connection_tp": 2,
+        "expected_directions": 5,
+        "direction_tp": 2
+      },
+      "supported": {
+        "expected_transitions": 3,
+        "transition_tp": 3,
+        "expected_connections": 2,
+        "connection_tp": 2,
+        "expected_directions": 3,
+        "direction_tp": 2
+      },
+      "failures": {
+        "source/target association": 4,
+        "arrowhead": 1,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 1044.56
+    },
+    {
+      "name": "writer000_fa_002",
+      "unsupported": false,
+      "unsupported_transitions": 3,
+      "expected_states": 4,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 9,
+        "transition_tp": 9,
+        "expected_connections": 7,
+        "connection_tp": 3,
+        "expected_directions": 9,
+        "direction_tp": 3
+      },
+      "supported": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 4,
+        "connection_tp": 2,
+        "expected_directions": 6,
+        "direction_tp": 2
+      },
+      "failures": {
+        "line detection": 2,
+        "source/target association": 6,
+        "arrowhead": 1,
+        "unsupported geometry": 3
+      },
+      "processing_ms": 1775.08
+    },
+    {
+      "name": "writer000_fa_003",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 4,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 7,
+        "transition_tp": 1,
+        "expected_connections": 6,
+        "connection_tp": 0,
+        "expected_directions": 7,
+        "direction_tp": 0
+      },
+      "supported": {
+        "expected_transitions": 5,
+        "transition_tp": 1,
+        "expected_connections": 4,
+        "connection_tp": 0,
+        "expected_directions": 5,
+        "direction_tp": 0
+      },
+      "failures": {
+        "line detection": 4,
+        "source/target association": 1,
+        "arrowhead": 0,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 194.1
+    },
+    {
+      "name": "writer000_fa_004",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 2,
+      "state_tp": 2,
+      "overall": {
+        "expected_transitions": 4,
+        "transition_tp": 4,
+        "expected_connections": 3,
+        "connection_tp": 0,
+        "expected_directions": 4,
+        "direction_tp": 0
+      },
+      "supported": {
+        "expected_transitions": 2,
+        "transition_tp": 2,
+        "expected_connections": 1,
+        "connection_tp": 0,
+        "expected_directions": 2,
+        "direction_tp": 0
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 3,
+        "arrowhead": 0,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 641.09
+    },
+    {
+      "name": "writer000_fa_005",
+      "unsupported": true,
+      "unsupported_transitions": 3,
+      "expected_states": 10,
+      "state_tp": 10,
+      "overall": {
+        "expected_transitions": 15,
+        "transition_tp": 15,
+        "expected_connections": 14,
+        "connection_tp": 10,
+        "expected_directions": 15,
+        "direction_tp": 8
+      },
+      "supported": {
+        "expected_transitions": 12,
+        "transition_tp": 12,
+        "expected_connections": 11,
+        "connection_tp": 10,
+        "expected_directions": 12,
+        "direction_tp": 8
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 9,
+        "arrowhead": 3,
+        "unsupported geometry": 3
+      },
+      "processing_ms": 1843.65
+    },
+    {
+      "name": "writer000_fa_006",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 8,
+        "transition_tp": 8,
+        "expected_connections": 8,
+        "connection_tp": 6,
+        "expected_directions": 8,
+        "direction_tp": 4
+      },
+      "supported": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 6,
+        "connection_tp": 5,
+        "expected_directions": 6,
+        "direction_tp": 3
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 6,
+        "arrowhead": 2,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 1317.7
+    },
+    {
+      "name": "writer000_fa_007",
+      "unsupported": false,
+      "unsupported_transitions": 3,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 7,
+        "connection_tp": 3,
+        "expected_directions": 7,
+        "direction_tp": 1
+      },
+      "supported": {
+        "expected_transitions": 4,
+        "transition_tp": 4,
+        "expected_connections": 4,
+        "connection_tp": 3,
+        "expected_directions": 4,
+        "direction_tp": 1
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 6,
+        "arrowhead": 2,
+        "unsupported geometry": 3
+      },
+      "processing_ms": 1023.19
+    },
+    {
+      "name": "writer000_fa_008",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 6,
+      "state_tp": 6,
+      "overall": {
+        "expected_transitions": 12,
+        "transition_tp": 12,
+        "expected_connections": 9,
+        "connection_tp": 3,
+        "expected_directions": 12,
+        "direction_tp": 3
+      },
+      "supported": {
+        "expected_transitions": 10,
+        "transition_tp": 10,
+        "expected_connections": 7,
+        "connection_tp": 3,
+        "expected_directions": 10,
+        "direction_tp": 3
+      },
+      "failures": {
+        "line detection": 4,
+        "source/target association": 7,
+        "arrowhead": 1,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 1096.99
+    },
+    {
+      "name": "writer000_fa_009",
+      "unsupported": false,
+      "unsupported_transitions": 4,
+      "expected_states": 6,
+      "state_tp": 6,
+      "overall": {
+        "expected_transitions": 13,
+        "transition_tp": 13,
+        "expected_connections": 12,
+        "connection_tp": 4,
+        "expected_directions": 13,
+        "direction_tp": 1
+      },
+      "supported": {
+        "expected_transitions": 9,
+        "transition_tp": 9,
+        "expected_connections": 8,
+        "connection_tp": 4,
+        "expected_directions": 9,
+        "direction_tp": 1
+      },
+      "failures": {
+        "line detection": 4,
+        "source/target association": 7,
+        "arrowhead": 3,
+        "unsupported geometry": 4
+      },
+      "processing_ms": 1070.68
+    },
+    {
+      "name": "writer000_fa_010",
+      "unsupported": false,
+      "unsupported_transitions": 3,
+      "expected_states": 4,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 6,
+        "connection_tp": 3,
+        "expected_directions": 7,
+        "direction_tp": 2
+      },
+      "supported": {
+        "expected_transitions": 4,
+        "transition_tp": 4,
+        "expected_connections": 3,
+        "connection_tp": 2,
+        "expected_directions": 4,
+        "direction_tp": 1
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 5,
+        "arrowhead": 1,
+        "unsupported geometry": 3
+      },
+      "processing_ms": 885.98
+    },
+    {
+      "name": "writer000_fa_011",
+      "unsupported": false,
+      "unsupported_transitions": 0,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 5,
+        "connection_tp": 2,
+        "expected_directions": 6,
+        "direction_tp": 2
+      },
+      "supported": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 5,
+        "connection_tp": 2,
+        "expected_directions": 6,
+        "direction_tp": 2
+      },
+      "failures": {
+        "line detection": 3,
+        "source/target association": 4,
+        "arrowhead": 0
+      },
+      "processing_ms": 500.6
+    },
+    {
+      "name": "writer000_fa_012",
+      "unsupported": false,
+      "unsupported_transitions": 3,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 10,
+        "transition_tp": 10,
+        "expected_connections": 9,
+        "connection_tp": 5,
+        "expected_directions": 10,
+        "direction_tp": 3
+      },
+      "supported": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 6,
+        "connection_tp": 4,
+        "expected_directions": 7,
+        "direction_tp": 3
+      },
+      "failures": {
+        "line detection": 2,
+        "source/target association": 7,
+        "arrowhead": 2,
+        "unsupported geometry": 3
+      },
+      "processing_ms": 2116.85
+    },
+    {
+      "name": "writer001_fa_001",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 3,
+      "state_tp": 2,
+      "overall": {
+        "expected_transitions": 5,
+        "transition_tp": 3,
+        "expected_connections": 4,
+        "connection_tp": 1,
+        "expected_directions": 5,
+        "direction_tp": 1
+      },
+      "supported": {
+        "expected_transitions": 3,
+        "transition_tp": 3,
+        "expected_connections": 2,
+        "connection_tp": 1,
+        "expected_directions": 3,
+        "direction_tp": 1
+      },
+      "failures": {
+        "state contour": 1,
+        "line detection": 1,
+        "source/target association": 2,
+        "arrowhead": 0,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 476.9
+    },
+    {
+      "name": "writer001_fa_002",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 4,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 9,
+        "transition_tp": 9,
+        "expected_connections": 7,
+        "connection_tp": 2,
+        "expected_directions": 9,
+        "direction_tp": 0
+      },
+      "supported": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 5,
+        "connection_tp": 2,
+        "expected_directions": 7,
+        "direction_tp": 0
+      },
+      "failures": {
+        "line detection": 3,
+        "source/target association": 5,
+        "arrowhead": 2,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 1665.53
+    },
+    {
+      "name": "writer001_fa_003",
+      "unsupported": false,
+      "unsupported_transitions": 1,
+      "expected_states": 4,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 7,
+        "transition_tp": 4,
+        "expected_connections": 6,
+        "connection_tp": 1,
+        "expected_directions": 7,
+        "direction_tp": 0
+      },
+      "supported": {
+        "expected_transitions": 6,
+        "transition_tp": 4,
+        "expected_connections": 5,
+        "connection_tp": 1,
+        "expected_directions": 6,
+        "direction_tp": 0
+      },
+      "failures": {
+        "line detection": 4,
+        "source/target association": 3,
+        "arrowhead": 1,
+        "unsupported geometry": 1
+      },
+      "processing_ms": 416.15
+    },
+    {
+      "name": "writer001_fa_004",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 2,
+      "state_tp": 2,
+      "overall": {
+        "expected_transitions": 4,
+        "transition_tp": 4,
+        "expected_connections": 3,
+        "connection_tp": 0,
+        "expected_directions": 4,
+        "direction_tp": 0
+      },
+      "supported": {
+        "expected_transitions": 2,
+        "transition_tp": 2,
+        "expected_connections": 1,
+        "connection_tp": 0,
+        "expected_directions": 2,
+        "direction_tp": 0
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 3,
+        "arrowhead": 0,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 493.58
+    },
+    {
+      "name": "writer001_fa_005",
+      "unsupported": true,
+      "unsupported_transitions": 1,
+      "expected_states": 10,
+      "state_tp": 10,
+      "overall": {
+        "expected_transitions": 12,
+        "transition_tp": 12,
+        "expected_connections": 11,
+        "connection_tp": 7,
+        "expected_directions": 12,
+        "direction_tp": 6
+      },
+      "supported": {
+        "expected_transitions": 11,
+        "transition_tp": 11,
+        "expected_connections": 10,
+        "connection_tp": 7,
+        "expected_directions": 11,
+        "direction_tp": 6
+      },
+      "failures": {
+        "line detection": 3,
+        "source/target association": 11,
+        "arrowhead": 2,
+        "unsupported geometry": 1
+      },
+      "processing_ms": 1616.69
+    },
+    {
+      "name": "writer001_fa_006",
+      "unsupported": false,
+      "unsupported_transitions": 1,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 8,
+        "transition_tp": 8,
+        "expected_connections": 8,
+        "connection_tp": 5,
+        "expected_directions": 8,
+        "direction_tp": 4
+      },
+      "supported": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 7,
+        "connection_tp": 5,
+        "expected_directions": 7,
+        "direction_tp": 4
+      },
+      "failures": {
+        "line detection": 2,
+        "source/target association": 5,
+        "arrowhead": 1,
+        "unsupported geometry": 1
+      },
+      "processing_ms": 1301.33
+    },
+    {
+      "name": "writer001_fa_007",
+      "unsupported": false,
+      "unsupported_transitions": 3,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 7,
+        "connection_tp": 2,
+        "expected_directions": 7,
+        "direction_tp": 2
+      },
+      "supported": {
+        "expected_transitions": 4,
+        "transition_tp": 4,
+        "expected_connections": 4,
+        "connection_tp": 2,
+        "expected_directions": 4,
+        "direction_tp": 2
+      },
+      "failures": {
+        "line detection": 2,
+        "source/target association": 6,
+        "arrowhead": 0,
+        "unsupported geometry": 3
+      },
+      "processing_ms": 1697.57
+    },
+    {
+      "name": "writer001_fa_008",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 6,
+      "state_tp": 3,
+      "overall": {
+        "expected_transitions": 12,
+        "transition_tp": 12,
+        "expected_connections": 9,
+        "connection_tp": 2,
+        "expected_directions": 12,
+        "direction_tp": 1
+      },
+      "supported": {
+        "expected_transitions": 10,
+        "transition_tp": 10,
+        "expected_connections": 7,
+        "connection_tp": 2,
+        "expected_directions": 10,
+        "direction_tp": 1
+      },
+      "failures": {
+        "state contour": 3,
+        "line detection": 5,
+        "source/target association": 4,
+        "arrowhead": 2,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 1541.1
+    },
+    {
+      "name": "writer001_fa_009",
+      "unsupported": false,
+      "unsupported_transitions": 5,
+      "expected_states": 6,
+      "state_tp": 6,
+      "overall": {
+        "expected_transitions": 13,
+        "transition_tp": 13,
+        "expected_connections": 12,
+        "connection_tp": 4,
+        "expected_directions": 13,
+        "direction_tp": 4
+      },
+      "supported": {
+        "expected_transitions": 8,
+        "transition_tp": 8,
+        "expected_connections": 8,
+        "connection_tp": 4,
+        "expected_directions": 8,
+        "direction_tp": 4
+      },
+      "failures": {
+        "line detection": 4,
+        "source/target association": 8,
+        "arrowhead": 0,
+        "unsupported geometry": 5
+      },
+      "processing_ms": 1069.18
+    },
+    {
+      "name": "writer001_fa_010",
+      "unsupported": false,
+      "unsupported_transitions": 2,
+      "expected_states": 4,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 7,
+        "transition_tp": 7,
+        "expected_connections": 6,
+        "connection_tp": 2,
+        "expected_directions": 7,
+        "direction_tp": 2
+      },
+      "supported": {
+        "expected_transitions": 5,
+        "transition_tp": 5,
+        "expected_connections": 4,
+        "connection_tp": 2,
+        "expected_directions": 5,
+        "direction_tp": 2
+      },
+      "failures": {
+        "line detection": 2,
+        "source/target association": 4,
+        "arrowhead": 1,
+        "unsupported geometry": 2
+      },
+      "processing_ms": 529.68
+    },
+    {
+      "name": "writer001_fa_011",
+      "unsupported": false,
+      "unsupported_transitions": 0,
+      "expected_states": 5,
+      "state_tp": 5,
+      "overall": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 5,
+        "connection_tp": 4,
+        "expected_directions": 6,
+        "direction_tp": 3
+      },
+      "supported": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 5,
+        "connection_tp": 4,
+        "expected_directions": 6,
+        "direction_tp": 3
+      },
+      "failures": {
+        "line detection": 1,
+        "source/target association": 5,
+        "arrowhead": 2
+      },
+      "processing_ms": 929.42
+    },
+    {
+      "name": "writer001_fa_012",
+      "unsupported": false,
+      "unsupported_transitions": 4,
+      "expected_states": 5,
+      "state_tp": 4,
+      "overall": {
+        "expected_transitions": 10,
+        "transition_tp": 10,
+        "expected_connections": 9,
+        "connection_tp": 2,
+        "expected_directions": 10,
+        "direction_tp": 2
+      },
+      "supported": {
+        "expected_transitions": 6,
+        "transition_tp": 6,
+        "expected_connections": 6,
+        "connection_tp": 2,
+        "expected_directions": 6,
+        "direction_tp": 2
+      },
+      "failures": {
+        "state contour": 1,
+        "line detection": 4,
+        "source/target association": 5,
+        "arrowhead": 0,
+        "unsupported geometry": 4
+      },
+      "processing_ms": 829.72
+    }
+  ]
+}
