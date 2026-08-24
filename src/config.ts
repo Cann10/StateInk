@@ -17,6 +17,14 @@ const apiBaseUrl = resolveApiBaseUrl(
   typeof window === 'undefined' ? '' : window.location.hostname,
 );
 
+export function joinApiUrl(baseUrl: string, path: `/${string}`): string {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  if (!base) return path;
+  if (base.endsWith(path)) return base;
+  if (base.endsWith('/api') && path.startsWith('/api/')) return `${base}${path.slice(4)}`;
+  return `${base}${path}`;
+}
+
 export function apiUrl(path: `/${string}`): string {
-  return `${apiBaseUrl}${path}`;
+  return joinApiUrl(apiBaseUrl, path);
 }

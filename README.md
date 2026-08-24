@@ -90,7 +90,7 @@ FrontendはViteの静的build、Recognition backendはFastAPIの独立サービ�
 
 | 変数 | 設定場所 | 例 | 説明 |
 | --- | --- | --- | --- |
-| `VITE_API_BASE_URL` | Frontend build | `https://api.example.com` | 末尾の`/`は任意。空なら同一originの`/api`を使用 |
+| `VITE_API_BASE_URL` | Frontend build | `https://api.example.com` | Render Backendのoriginのみ（通常は`/api`を付けない）。空なら同一originの`/api`を使用 |
 | `STATEINK_CORS_ORIGINS` | Backend runtime | `https://app.example.com` | 許可するFrontend origin。複数はカンマ区切り |
 | `PORT` | Backend runtime | `8000` | コンテナの待受port。未指定時は8000 |
 
@@ -123,5 +123,7 @@ uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 ```
 
 公開後はFrontend、`GET /api/health`、画像Reviewを同じproduction URLの組み合わせで確認してください。API URLを変更した場合、Frontendは再buildが必要です。
+
+Vercelでは`VITE_API_BASE_URL`にRenderの公開origin（例: `https://stateink-api.onrender.com`）を設定します。`/api/recognize`はFrontendが付加します。値を変更した後はVercelを再deployしてください。HTMLや`The page could not be found`が返る場合は、`$VITE_API_BASE_URL/api/health`と`$VITE_API_BASE_URL/api/recognize`が同じRender serviceを指すか確認します。
 
 公開直前のGit確認、確定環境変数、CORS確認、Critical user flow、rollback手順は[Production deployment runbook](docs/deployment.md)を使用してください。

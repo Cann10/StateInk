@@ -14,7 +14,7 @@ StateInkはfeature freeze済みです。この文書は公開直前と公開後�
 
 | Service | 変数 | 必須条件 | 値 |
 | --- | --- | --- | --- |
-| Frontend build | `VITE_API_BASE_URL` | FrontendとBackendが別originの場合は必須 | BackendのHTTPS origin。例: `https://api.stateink.example` |
+| Frontend build | `VITE_API_BASE_URL` | FrontendとBackendが別originの場合は必須 | BackendのHTTPS origin。例: `https://api.stateink.example`。通常は`/api`を付けない |
 | Backend runtime | `STATEINK_CORS_ORIGINS` | productionでは必須 | FrontendのHTTPS origin。複数はカンマ区切り。pathと末尾`/`は付けない |
 | Backend runtime | `PORT` | hosting platformが指定する場合 | platform指定値。未指定時は`8000` |
 

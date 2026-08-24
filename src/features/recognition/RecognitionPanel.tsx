@@ -2,19 +2,11 @@ import { useState, type ChangeEvent } from 'react';
 import { AlertTriangle, ImagePlus, LoaderCircle, Repeat2, Trash2, X } from 'lucide-react';
 import type { StateMachine } from '../../core/types';
 import { apiUrl } from '../../config';
+import { parseRecognitionResponse } from './api';
 import { recognitionToStateMachine } from './toStateMachine';
 import type { RecognitionResult } from './types';
 
 interface Props { onConfirm: (machine: StateMachine) => void; onClose: () => void }
-
-async function responseJson<T>(response: Response, requestUrl: string): Promise<T> {
-  const body = await response.text();
-  try {
-    return JSON.parse(body) as T;
-  } catch {
-    throw new Error(`APIがJSONを返しませんでした（HTTP ${response.status} / ${requestUrl}）`);
-  }
-}
 
 export function RecognitionPanel({ onConfirm, onClose }: Props) {
   const [result, setResult] = useState<RecognitionResult>();
@@ -26,11 +18,8 @@ export function RecognitionPanel({ onConfirm, onClose }: Props) {
     setLoading(true); setError(undefined);
     const form = new FormData(); form.append('file', file);
     try {
-      const requestUrl = apiUrl('/api/recognize');
-      const response = await fetch(requestUrl, { method: 'POST', body: form });
-      const payload = await responseJson<RecognitionResult & { detail?: string }>(response, requestUrl);
-      if (!response.ok) throw new Error(payload.detail ?? `画像を読み取れませんでした（HTTP ${response.status}）`);
-      setResult(payload);
+      const response = await fetch(apiUrl('/api/recognize'), { method: 'POST', body: form });
+      setResult(await parseRecognitionResponse(response));
     } catch (reason) { setError(reason instanceof Error ? reason.message : '画像を読み取れませんでした'); }
     finally { setLoading(false); }
   };
