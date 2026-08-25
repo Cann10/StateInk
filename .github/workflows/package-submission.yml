@@ -1,0 +1,98 @@
+name: Package U22 Submission
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Tesseract
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-jpn
+
+      - name: Frontend validation
+        run: |
+          npm ci
+          npm run check
+
+      - name: Backend validation
+        run: |
+          python -m pip install -r backend/requirements.txt
+          PYTHONPATH=backend pytest backend/tests
+
+      - name: Build submission ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p submission/StateInk
+          rsync -a ./ submission/StateInk/ \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='node_modules/' \
+            --exclude='dist/' \
+            --exclude='.venv/' \
+            --exclude='venv/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --include='.env.example' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='playwright-report/' \
+            --exclude='test-results/' \
+            --exclude='*.zip' \
+            --exclude='.DS_Store'
+
+          cat > submission/StateInk/SUBMISSION_MANIFEST.md <<EOF
+          # StateInk U-22 2026 Submission Package
+
+          Source repository: https://github.com/Cann10/StateInk
+          Source commit: ${GITHUB_SHA}
+          Production: https://state-ink.vercel.app
+
+          ## Excluded from ZIP
+          - .git / .github
+          - node_modules / dist
+          - .venv / venv / __pycache__ / *.pyc
+          - .env / .env.* (except .env.example)
+          - playwright-report / test-results
+          - existing ZIP files / .DS_Store
+
+          Raw FA Database data and secrets are not included in the repository or this package.
+          EOF
+
+          cd submission
+          zip -rq ../StateInk_U22_2026.zip StateInk
+          cd ..
+          unzip -t StateInk_U22_2026.zip
+          sha256sum StateInk_U22_2026.zip | tee StateInk_U22_2026.zip.sha256
+
+      - name: Upload submission artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StateInk_U22_2026
+          path: |
+            StateInk_U22_2026.zip
+            StateInk_U22_2026.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
