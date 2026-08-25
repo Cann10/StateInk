@@ -41,3 +41,9 @@ Codexがfeature freezeを維持したまま、Frontendのproduction API URL、Fa
 ## 2026-08-24 — Codex（Pre-deploy review）
 
 CodexがGit remote/upstream、Frontend/Backend container、nginx、環境変数、health endpointを静的監査しました。公開後にHome、自動販売機修正、Recognition Review、Simulator、health、CORS、HTTPS、consoleを確認するrunbookとrollback基準を作成しました。アプリ機能とRecognitionアルゴリズムは変更していません。
+
+## 2026-08-25 — ChatGPT（日本語・英語OCR自動命名）
+
+ChatGPTが既存Recognitionを確認し、Tesseractの`jpn+eng` language dataを使ったOCR自動命名を追加しました。状態枠内の文字をState名へ、矢印付近の文字をEvent名へ位置関係で割り当て、複数OCR tokenの読み順結合、日本語間の不要空白の正規化、OCR失敗時の`State N` / `event_N` fallbackを維持しました。Render用`Dockerfile.backend`には`tesseract-ocr`、`tesseract-ocr-eng`、`tesseract-ocr-jpn`を追加しました。
+
+同時に日本語・英語OCR helperのテストを追加し、既存の構造認識/Human-in-the-loop方針は維持しました。OCRは完全自動確定ではなくReview可能な下書きであり、特に小さい文字、崩れた手書き、複数行、線と重なる文字、矢印方向は人が確認する前提です。外部Vision/LLM API、Cloud Vision、独自ML学習は使用していません。
