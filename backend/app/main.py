@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -5,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .models import RecognitionResult
 from .recognizer import recognize_image
+
+logger = logging.getLogger("stateink.recognition")
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
@@ -38,3 +41,11 @@ async def recognize(file: UploadFile = File(...)) -> RecognitionResult:
         return recognize_image(data)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except HTTPException:
+        raise
+    except Exception as error:  # noqa: BLE001 - last-resort guard for a stable demo
+        logger.exception("recognition failed")
+        raise HTTPException(
+            status_code=500,
+            detail="画像の解析中に問題が発生しました。別の画像で試してください。",
+        ) from error

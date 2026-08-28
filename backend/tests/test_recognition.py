@@ -65,6 +65,22 @@ def test_api_rejects_non_image() -> None:
     assert response.status_code == 415
 
 
+def test_api_returns_a_friendly_message_on_unexpected_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.main as main
+
+    def boom(_data: bytes) -> None:
+        raise RuntimeError("cv2 exploded")
+
+    monkeypatch.setattr(main, "recognize_image", boom)
+    response = TestClient(app).post(
+        "/api/recognize", files={"file": ("d.png", b"\x89PNG\r\n", "image/png")}
+    )
+    assert response.status_code == 500
+    body = response.json()
+    assert "問題が発生しました" in body["detail"]
+    assert "cv2 exploded" not in body["detail"]
+
+
 def test_cors_origins_are_trimmed_for_deployment() -> None:
     assert cors_origins(" https://stateink.example/ ,https://api.example ,, ") == [
         "https://stateink.example",

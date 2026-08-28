@@ -347,6 +347,17 @@ aside { display: grid; gap: 20px; }
 .confirm-hint { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--color-soft-border); border-radius: var(--radius-sm); background: var(--color-soft); color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
 .confirm-hint b { color: var(--color-primary); }
 
+.app-error { display: grid; place-items: center; min-height: 100vh; padding: 32px; background: var(--color-background); }
+.app-error > div { max-width: 440px; text-align: center; }
+.app-error h1 { font: 700 22px Georgia, serif; margin: 0 0 12px; }
+.app-error p { color: var(--color-text-secondary); font-size: 13px; line-height: 1.7; margin: 0 0 20px; }
+.app-error-actions { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.app-error-actions .reset { border: 1px solid var(--color-border-strong); }
+
+/* Keep card-title action controls on one line even on narrow screens */
+.card-title .reset, .card-title .live, .card-title .primary.small { white-space: nowrap; }
+.card-title .primary.small { flex: none; }
+
 @media (max-width: 850px) {
   .flow-steps { padding: 0 14px; }
 }
@@ -355,4 +366,6 @@ aside { display: grid; gap: 20px; }
   .card-hint { font-size: 11.5px; }
   .trace { max-height: 132px; overflow: auto; }
   .flow-step { font-size: 11px; padding: 6px 10px; }
+  .card-title { gap: 10px; }
+  .card-title .reset { padding: 6px 6px; font-size: 10px; }
 }
