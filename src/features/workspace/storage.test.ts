@@ -11,4 +11,9 @@ describe('parseSavedWorkspace', () => {
     expect(parseSavedWorkspace('{broken')).toBeUndefined();
     expect(parseSavedWorkspace(JSON.stringify({ machine: {} }))).toBeUndefined();
   });
+
+  it('rejects a machine whose entries would crash the editor', () => {
+    expect(parseSavedWorkspace(JSON.stringify({ machine: { states: [{ id: 'a' }], transitions: [] } }))).toBeUndefined();
+    expect(parseSavedWorkspace(JSON.stringify({ machine: { states: [], transitions: [{ id: 't', from: 'x', to: 'y', event: 'go' }] } }))).toBeUndefined();
+  });
 });

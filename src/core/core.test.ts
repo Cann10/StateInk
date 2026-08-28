@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze } from './analyzer';
 import { shortestEventPath } from './counterexample';
-import { availableEvents, createSimulation, reset, transition } from './simulator';
+import { availableEvents, createSimulation, replayEvents, reset, transition } from './simulator';
 import { addState, addTransition, removeState, removeTransition, updateState } from './editor';
 import type { StateMachine } from './types';
 import { vendingMachine } from '../samples/vendingMachine';
@@ -15,7 +15,7 @@ describe('analyzer', () => {
   it('detects a missing initial state', () => expect(analyze(machine([state('a')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'missing-initial' })])));
   it('detects multiple initial states', () => expect(analyze(machine([state('a', true), state('b', true)]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'multiple-initial' })])));
   it('detects an unreachable state', () => expect(analyze(machine([state('a', true), state('b'), state('c')], [edge('ab', 'a', 'b'), edge('cb', 'c', 'b')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'unreachable', stateIds: ['c'] })])));
-  it('detects a reachable dead end', () => expect(analyze(machine([state('a', true), state('b')], [edge('go', 'a', 'b')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'dead-end', counterexample: ['go'] })])));
+  it('detects a reachable dead end and suggests a reviewed return transition', () => expect(analyze(machine([state('a', true), state('b')], [edge('go', 'a', 'b')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'dead-end', counterexample: ['go'], suggestions: [expect.objectContaining({ from: 'b', to: 'a', event: 'return' })] })])));
   it('detects an isolated state', () => expect(analyze(machine([state('a', true), state('alone')], [edge('loop', 'a', 'a')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'isolated', stateIds: ['alone'] })])));
   it('detects a transition conflict', () => expect(analyze(machine([state('a', true), state('b'), state('c')], [edge('one', 'a', 'b', 'go'), edge('two', 'a', 'c', 'go')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'transition-conflict' })])));
   it('detects a cycle that cannot reach an existing final state', () => expect(analyze(machine([state('a', true), state('b'), state('c'), { ...state('done'), final: true }], [edge('enter', 'a', 'b'), edge('finish', 'a', 'done'), edge('bc', 'b', 'c'), edge('cb', 'c', 'b')]))).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'non-terminating-cycle' })])));
@@ -39,6 +39,7 @@ describe('simulator', () => {
   it('resets to the initial state', () => { const moved = transition(vendingMachine, createSimulation(vendingMachine), 'coin'); expect(reset(vendingMachine)).toEqual({ currentStateId: 'idle', trace: [{ stateId: 'idle' }] }); expect(moved.currentStateId).toBe('paid'); });
   it('refuses to start without exactly one initial state', () => { expect(createSimulation(machine([state('a')]))).toEqual({ trace: [], error: 'missing-initial' }); expect(createSimulation(machine([state('a', true), state('b', true)]))).toEqual({ trace: [], error: 'multiple-initial' }); });
   it('refuses an ambiguous transition conflict', () => { const value = machine([state('a', true), state('b'), state('c')], [edge('one', 'a', 'b', 'go'), edge('two', 'a', 'c', 'go')]); const start = createSimulation(value); expect(transition(value, start, 'go')).toBe(start); });
+  it('replays a shortest operation sequence and returns its highlighted path', () => { const replay = replayEvents(vendingMachine, ['coin', 'select']); expect(replay.simulation.currentStateId).toBe('selected'); expect(replay.stateIds).toEqual(['idle', 'paid', 'selected']); expect(replay.transitionIds).toEqual(['coin', 'select']); });
 });
 
 describe('editor', () => {

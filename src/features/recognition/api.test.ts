@@ -9,6 +9,12 @@ describe('parseRecognitionResponse', () => {
     await expect(parseRecognitionResponse(response)).resolves.toEqual(validResult);
   });
 
+  it('keeps low-confidence legacy directions unconfirmed', async () => {
+    const body = { ...validResult, transitions: [{ id: 'edge', from: 'a', to: 'b', event: 'go', geometry: { x: 0, y: 0, width: 10, height: 0 }, confidence: .45 }] };
+    const response = new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    await expect(parseRecognitionResponse(response)).resolves.toMatchObject({ transitions: [{ direction_confirmed: false }] });
+  });
+
   it('shows a configuration error instead of parsing an HTML error page as JSON', async () => {
     const response = new Response('The page could not be found', { status: 404, headers: { 'content-type': 'text/plain' } });
     await expect(parseRecognitionResponse(response)).rejects.toThrow('VITE_API_BASE_URLとRenderのURL');

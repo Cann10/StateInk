@@ -24,6 +24,7 @@ class RecognizedTransition(BaseModel):
     event: str
     geometry: Geometry
     confidence: float = Field(ge=0, le=1)
+    direction_confirmed: bool = False
 
     model_config = {"populate_by_name": True}
 

@@ -32,3 +32,16 @@ Segment mergingでSupported connectionは+5.8pt、transition detectionは+0.8pt�
 ## Freeze decision
 
 State 90%とTransition detection 85%は満たしますが、Connection 75%とDirection 75%には届きません。指定された最終改善サイクルを終えたため、追加の大規模CV開発は停止しました。Recognitionは「状態構造の下書きを作る補助」として機能凍結し、接続と方向はReviewで必ず確認する前提です。Submission-ready polishも完了しており、この値を前提に提出資料とデモを構成します。
+
+## 2026-08-28 実画像耐性サイクル
+
+同じ先頭24図で、厳格な接続判定を導入済みの直前版と、前処理・低confidence曲線候補を加えた版を直接比較しました。
+
+| Scope | Version | State | Transition candidate | Connection | Direction candidate |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Overall | Before | 113/118 | 48/203 | 27/177 | 22/203 |
+| Overall | After | 112/118 | 133/203 | 56/177 | 50/203 |
+| Supported | Before | 93/98 | 39/126 | 21/104 | 17/126 |
+| Supported | After | 93/98 | 93/126 | 44/104 | 40/126 |
+
+曲線・途切れ線のReview候補によりSupported connection recall相当は20.2%から42.3%、Direction候補は13.5%から31.7%へ改善しました。一方で候補増加に伴いSupported source/target association failureは16から57へ増えています。Afterの公式手書き24図では自動確定Directionは0件、Review送り142件（100%）で、誤った自動確定は発生していませんが、自動確定coverageもありません。したがって現状の主な弱点は、密集図・交差線での接続候補precisionと、崩れたarrowheadの確実な自動方向判定です。

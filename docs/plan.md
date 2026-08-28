@@ -10,7 +10,7 @@ IR、純粋な Simulator、Analyzer、BFS 反例、Tarjan Trap SCC、正常/問�
 
 ## Phase 2 — Recognition（完了・機能凍結）
 
-白紙＋黒線の限定条件で、OpenCVによる状態形状・接続候補をRecognitionResultとして返し、人がReviewで修正してからIRへ確定するパイプラインを実装しました。OCRは仮名を置き換える補助と位置づけ、完全認識を目標にしません。
+白紙＋黒線の限定条件で、OpenCVによる状態形状・接続候補をRecognitionResultとして返し、人がReviewで修正してからIRへ確定するパイプラインを実装しました。Tesseract `jpn+eng`で日本語・英語・混在文字をState/Eventへgeometry関連付けし、低confidenceは仮名と警告を残します。OCRは仮名を置き換える補助と位置づけ、完全認識を目標にしません。
 
 ## Phase 3 — Polish / Evaluation / Submission（完了）
 

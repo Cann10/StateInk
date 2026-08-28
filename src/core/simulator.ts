@@ -2,6 +2,7 @@ import type { StateMachine, TraceStep } from './types';
 
 export type SimulationError = 'missing-initial' | 'multiple-initial';
 export interface Simulation { currentStateId?: string; trace: TraceStep[]; lastTransitionId?: string; error?: SimulationError }
+export interface ReplayResult { simulation: Simulation; stateIds: string[]; transitionIds: string[] }
 
 export function createSimulation(machine: StateMachine): Simulation {
   const initials = machine.states.filter((state) => state.initial);
@@ -22,3 +23,17 @@ export function transition(machine: StateMachine, simulation: Simulation, event:
   return { currentStateId: edge.to, lastTransitionId: edge.id, trace: [...simulation.trace, { event, stateId: edge.to }] };
 }
 export function reset(machine: StateMachine): Simulation { return createSimulation(machine); }
+
+export function replayEvents(machine: StateMachine, events: string[]): ReplayResult {
+  let simulation = createSimulation(machine);
+  const stateIds = simulation.currentStateId ? [simulation.currentStateId] : [];
+  const transitionIds: string[] = [];
+  for (const event of events) {
+    const next = transition(machine, simulation, event);
+    if (next === simulation || !next.currentStateId || !next.lastTransitionId) break;
+    simulation = next;
+    stateIds.push(next.currentStateId);
+    transitionIds.push(next.lastTransitionId);
+  }
+  return { simulation, stateIds, transitionIds };
+}

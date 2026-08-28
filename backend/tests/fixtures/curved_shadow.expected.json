@@ -1,0 +1,8 @@
+{
+  "category": "photo_like",
+  "states": 2,
+  "transitions": 1,
+  "state_labels": ["A", "B"],
+  "event_labels": ["curve"],
+  "connections": [["state-1", "state-2"]]
+}
