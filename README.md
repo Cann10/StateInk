@@ -7,6 +7,10 @@
 
 StateInkは、紙や画面上の状態遷移図を操作可能な設計へ変え、設計上の問題とそこへ至る最短操作列を示すWebアプリです。画像認識をゴールにせず、**問題を見つける → 自分で直す → 警告が消える → 実際に動かす**体験を中心にしています。
 
+- Web app: https://state-ink.vercel.app
+- Recognition API: https://stateink.onrender.com
+- Source: https://github.com/Cann10/StateInk
+
 ## 制作背景と問題
 
 大学の授業で自動販売機の状態遷移図を書いた際、図は描けても「本当に正しく動くか」は紙の上で状態を一つずつ追う必要がありました。状態や矢印が増えるほど、到達不能、行き止まり、同じ操作の競合を人間だけで見つけるのは難しくなります。
@@ -56,7 +60,7 @@ OpenCVの輪郭解析で円・楕円・長方形の状態候補、Hough線分と
 
 ## AI利用
 
-設計・実装・テスト・文書化にCodexを利用しました。外部Vision/LLM APIや独自ML学習は使用していません。作業単位の記録は[AI_USAGE.md](AI_USAGE.md)にあります。
+設計・実装・テスト・文書化にCodexおよびChatGPTを利用しました。外部Vision/LLM APIや独自ML学習は使用していません。作業単位の記録は[AI_USAGE.md](AI_USAGE.md)にあります。
 
 ## 起動方法
 
@@ -90,8 +94,8 @@ FrontendはViteの静的build、Recognition backendはFastAPIの独立サービ�
 
 | 変数 | 設定場所 | 例 | 説明 |
 | --- | --- | --- | --- |
-| `VITE_API_BASE_URL` | Frontend build | `https://api.example.com` | Render Backendのoriginのみ（通常は`/api`を付けない）。空なら同一originの`/api`を使用 |
-| `STATEINK_CORS_ORIGINS` | Backend runtime | `https://app.example.com` | 許可するFrontend origin。複数はカンマ区切り |
+| `VITE_API_BASE_URL` | Frontend build | `https://stateink.onrender.com` | Render Backendのoriginのみ（通常は`/api`を付けない）。空なら同一originの`/api`を使用 |
+| `STATEINK_CORS_ORIGINS` | Backend runtime | `https://state-ink.vercel.app` | 許可するFrontend origin。複数はカンマ区切り |
 | `PORT` | Backend runtime | `8000` | コンテナの待受port。未指定時は8000 |
 
 値の形は[`.env.example`](.env.example)を参照してください。`.env`と`.env.*`はGit対象外です。productionではHTTPSのFrontend originだけを`STATEINK_CORS_ORIGINS`へ列挙し、`*`を使用しないでください。
@@ -102,28 +106,28 @@ FrontendはViteの静的build、Recognition backendはFastAPIの独立サービ�
 # Backend
 docker build -f Dockerfile.backend -t stateink-backend .
 docker run --rm -p 8000:8000 \
-  -e STATEINK_CORS_ORIGINS=https://app.example.com \
+  -e STATEINK_CORS_ORIGINS=https://state-ink.vercel.app \
   stateink-backend
 curl http://localhost:8000/api/health
 
 # Frontend（API URLはbuild artifactへ埋め込まれる）
 docker build -f Dockerfile.frontend \
-  --build-arg VITE_API_BASE_URL=https://api.example.com \
+  --build-arg VITE_API_BASE_URL=https://stateink.onrender.com \
   -t stateink-frontend .
 docker run --rm -p 8080:8080 stateink-frontend
 curl http://localhost:8080/health
 ```
 
-Frontendはnginxで静的ファイルを配信し、SPA fallbackを設定しています。Dockerを使わない場合は`VITE_API_BASE_URL=https://api.example.com npm run build`で生成した`dist/`を任意の静的ホスティングへ配置してください。BackendはPython 3.11で依存を導入し、次のように起動できます。
+Frontendはnginxで静的ファイルを配信し、SPA fallbackを設定しています。Dockerを使わない場合は`VITE_API_BASE_URL=https://stateink.onrender.com npm run build`で生成した`dist/`を任意の静的ホスティングへ配置してください。BackendはPython 3.11で依存を導入し、次のように起動できます。
 
 ```bash
-STATEINK_CORS_ORIGINS=https://app.example.com \
+STATEINK_CORS_ORIGINS=https://state-ink.vercel.app \
 PORT=8000 \
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 ```
 
 公開後はFrontend、`GET /api/health`、画像Reviewを同じproduction URLの組み合わせで確認してください。API URLを変更した場合、Frontendは再buildが必要です。
 
-Vercelでは`VITE_API_BASE_URL`にRenderの公開origin（例: `https://stateink-api.onrender.com`）を設定します。`/api/recognize`はFrontendが付加します。値を変更した後はVercelを再deployしてください。HTMLや`The page could not be found`が返る場合は、`$VITE_API_BASE_URL/api/health`と`$VITE_API_BASE_URL/api/recognize`が同じRender serviceを指すか確認します。
+Vercelでは`VITE_API_BASE_URL`にRenderの公開origin（`https://stateink.onrender.com`）を設定します。`/api/recognize`はFrontendが付加します。値を変更した後はVercelを再deployしてください。HTMLや`The page could not be found`が返る場合は、`$VITE_API_BASE_URL/api/health`と`$VITE_API_BASE_URL/api/recognize`が同じRender serviceを指すか確認します。
 
 公開直前のGit確認、確定環境変数、CORS確認、Critical user flow、rollback手順は[Production deployment runbook](docs/deployment.md)を使用してください。

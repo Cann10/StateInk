@@ -45,3 +45,9 @@ CodexがGit remote/upstream、Frontend/Backend container、nginx、環境変数�
 ## 2026-08-25 — Codex（日本語・英語OCR自動命名）
 
 Codexが既存のRecognition/Review境界を維持したまま、Tesseract `jpn+eng`による文字領域抽出、複数語・短文・日英混在の空白正規化、State内／近傍を優先したgeometry関連付け、Transition線分までの距離によるevent関連付けを実装しました。OCR confidenceが55%未満の場合は自動命名せず、`State N` / `event_N`の仮名とReview警告を残します。Docker backendへ日本語・英語language dataを追加し、指定された日本語・英語・混在ケース、低confidence fallback、Reviewでの自由修正をbackend testとPlaywright E2Eで固定しました。外部Vision/LLM API、Cloud Vision、大規模なRecognition再設計は使用していません。
+
+同日、ChatGPTでも並行して日英OCR自動命名の別実装（`_apply_ocr_labels`系）と提出パッケージ用CIを試作し、`origin/main`へpushしました。提出版ではこのCodex実装ラインへ統合し、二重実装を避けてChatGPT側からは提出パッケージCI（`.github/workflows/package-submission.yml`）のみを取り込んでいます。
+
+## 2026-08-28 — Codex（提出版統合と品質仕上げ）
+
+Codexが太線State輪郭の階層判定修正、`direction_confirmed`による方向未確認ゲート、遠近・傾き補正の前処理、曲線コネクタ検出、Analyzer反例のreplay経路強調と修正候補提示を8/28安定版として確定しました。続いて壊れたlocalStorage/JSONを安全に拒否する入力検証、認識APIの25秒タイムアウトと再試行導線、Tesseract導入言語の自動選択（`jpn`/`eng`/`jpn+eng`）、モックなしの実OCRスモークテスト、GitHub Actions CIを追加しました。`origin/main`（ChatGPTライン9コミット）は非破壊で保持したまま、そこを土台にした統合branchへ8/28実装を再適用しています。認識アルゴリズム・UI・Analyzerの設計は変更していません。
