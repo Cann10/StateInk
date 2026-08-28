@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSavedWorkspace } from './storage';
+import { clearSavedWorkspace, loadSavedWorkspace, parseSavedWorkspace, saveWorkspace, type SavedWorkspace } from './storage';
 
 describe('parseSavedWorkspace', () => {
   it('restores a saved workspace', () => {
@@ -15,5 +15,18 @@ describe('parseSavedWorkspace', () => {
   it('rejects a machine whose entries would crash the editor', () => {
     expect(parseSavedWorkspace(JSON.stringify({ machine: { states: [{ id: 'a' }], transitions: [] } }))).toBeUndefined();
     expect(parseSavedWorkspace(JSON.stringify({ machine: { states: [], transitions: [{ id: 't', from: 'x', to: 'y', event: 'go' }] } }))).toBeUndefined();
+  });
+});
+
+describe('storage side effects never throw', () => {
+  const workspace: SavedWorkspace = { machine: { states: [], transitions: [] }, sampleKey: 'valid', screen: 'home' };
+
+  it('save/clear swallow unavailable-storage errors', () => {
+    expect(() => saveWorkspace(workspace)).not.toThrow();
+    expect(() => clearSavedWorkspace()).not.toThrow();
+  });
+
+  it('load returns undefined when storage is unavailable', () => {
+    expect(loadSavedWorkspace()).toBeUndefined();
   });
 });

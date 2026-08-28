@@ -26,9 +26,26 @@ export function parseSavedWorkspace(value: string | null): SavedWorkspace | unde
 
 export function loadSavedWorkspace(): SavedWorkspace | undefined {
   if (typeof window === 'undefined') return undefined;
-  return parseSavedWorkspace(window.localStorage.getItem(workspaceStorageKey));
+  try {
+    return parseSavedWorkspace(window.localStorage.getItem(workspaceStorageKey));
+  } catch {
+    return undefined;
+  }
 }
 
 export function saveWorkspace(workspace: SavedWorkspace): void {
-  window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspace));
+  try {
+    window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspace));
+  } catch {
+    // Storage can be full, disabled, or blocked (private mode). Losing the
+    // autosave is acceptable; a thrown error here must not break the app.
+  }
+}
+
+export function clearSavedWorkspace(): void {
+  try {
+    window.localStorage.removeItem(workspaceStorageKey);
+  } catch {
+    // Ignore: nothing to recover if storage is unavailable.
+  }
 }
