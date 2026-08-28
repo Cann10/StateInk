@@ -1,0 +1,8 @@
+{
+  "category": "photo_like",
+  "states": 2,
+  "transitions": 1,
+  "state_labels": ["待機", "RUN"],
+  "event_labels": ["start"],
+  "connections": [["state-1", "state-2"]]
+}

@@ -92,9 +92,11 @@ aside { display: grid; gap: 20px; }
 .react-flow__node.current-node { border: 2.5px solid var(--color-primary) !important; box-shadow: 0 0 0 5px rgb(31 138 99 / 14%) !important; }
 .react-flow__node.problem-node { border-style: dashed !important; border-color: var(--color-warning) !important; }
 .react-flow__node.selected-node { outline: 3px solid var(--color-accent); outline-offset: 3px; }
+.react-flow__node.replayed-node { box-shadow: 0 0 0 5px rgb(213 166 59 / 28%) !important; }
 .react-flow__edge-path { stroke: var(--color-edge); stroke-width: 1.8; }
 .react-flow__edge.active-edge .react-flow__edge-path { stroke: var(--color-accent); stroke-width: 3; }
 .react-flow__edge.selected-edge .react-flow__edge-path { stroke: var(--color-accent); stroke-width: 4; }
+.react-flow__edge.replayed-edge .react-flow__edge-path { stroke: var(--color-gold); stroke-width: 4; }
 .react-flow__edge-text { fill: var(--color-text); font: 700 11px ui-monospace, SFMono-Regular, monospace; }
 .react-flow__edge-textbg { fill: var(--color-surface); stroke: var(--color-border); stroke-width: .5; }
 .react-flow__controls { box-shadow: none; border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
@@ -136,9 +138,18 @@ aside { display: grid; gap: 20px; }
 .issue p { font-size: 12px; color: var(--color-text-secondary); line-height: 1.65; }
 .issue small { display: block; color: var(--color-text-muted); margin-top: 10px; font-family: ui-monospace, SFMono-Regular, monospace; }
 .reproduce, .no-path { background: var(--color-background); border-radius: var(--radius-sm); padding: 10px; }
-.reproduce { display: flex; flex-direction: column; gap: 5px; }
+.reproduce { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; align-items: center; }
 .reproduce span { font-size: 10px; color: var(--color-text-secondary); }
 .reproduce strong { font: 700 12px ui-monospace, SFMono-Regular, monospace; color: var(--color-primary); }
+.reproduce span, .reproduce strong { grid-column: 1; }
+.reproduce button, .fix-suggestion button { grid-column: 2; grid-row: 1 / span 2; border: 1px solid var(--color-primary); border-radius: var(--radius-sm); background: var(--color-primary); color: white; padding: 8px 10px; cursor: pointer; font-size: 11px; font-weight: 750; }
+.replay-status { margin: 10px var(--space-card) 0; color: var(--color-warning); font-size: 11px; font-weight: 700; }
+.fix-suggestion { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin-top: 10px; padding: 10px; border: 1px solid var(--color-soft-border); border-radius: var(--radius-sm); background: var(--color-soft); }
+.fix-suggestion span, .fix-suggestion strong, .fix-suggestion code { grid-column: 1; }
+.fix-suggestion span { color: var(--color-primary); font-size: 10px; font-weight: 800; }
+.fix-suggestion strong { font-size: 12px; }
+.fix-suggestion code { color: var(--color-text-secondary); font-size: 11px; }
+.fix-suggestion button { grid-column: 2; grid-row: 1 / span 3; }
 
 .recognition-wrap { max-width: 1400px; margin: 22px auto 0; padding: 0 28px; }
 .recognition { border-color: var(--color-gold); }
@@ -156,6 +167,33 @@ aside { display: grid; gap: 20px; }
 .review-notice svg { flex: none; }
 .review-notice p { font-size: 12px; margin: 4px 0; }
 .recognition-warning { font-size: 12px; color: var(--color-warning); }
+.recognition-overview { margin-top: 18px; }
+.overlay-stage { position: relative; min-height: 260px; overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: #eef1ed; }
+.overlay-stage img { display: block; width: 100%; height: auto; min-height: 260px; max-height: 520px; object-fit: contain; }
+.overlay-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.overlay-stage svg g[role="button"] { cursor: pointer; }
+.overlay-state { fill-opacity: .14; stroke-width: 4; vector-effect: non-scaling-stroke; }
+.overlay-transition { stroke-width: 4; vector-effect: non-scaling-stroke; }
+.overlay-stage text { paint-order: stroke; stroke: white; stroke-width: 4px; stroke-linejoin: round; fill: var(--color-text); font-size: 13px; font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.overlay-state.confidence-high, .overlay-transition.confidence-high { stroke: #16815e; }
+.overlay-fill.confidence-high { fill: #16815e; }
+.overlay-state.confidence-medium, .overlay-transition.confidence-medium { stroke: #c58a15; }
+.overlay-fill.confidence-medium { fill: #c58a15; }
+.overlay-state.confidence-low, .overlay-transition.confidence-low { stroke: var(--color-error); stroke-dasharray: 7 5; }
+.overlay-fill.confidence-low { fill: var(--color-error); }
+.overlay-active .overlay-state, .overlay-active .overlay-transition { stroke-width: 7; filter: drop-shadow(0 0 4px white); }
+.confidence-legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 10px; font-weight: 800; }
+.confidence-legend span, .confidence-badge { padding: 4px 7px; border-radius: 999px; white-space: nowrap; }
+.confidence-high { color: var(--color-primary); background: var(--color-soft); }
+.confidence-medium { color: var(--color-warning); background: var(--color-warning-bg); }
+.confidence-low { color: var(--color-error); background: var(--color-error-bg); }
+.review-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-background); }
+.review-toolbar > div:first-child { display: grid; gap: 3px; }
+.review-toolbar span { color: var(--color-text-secondary); font-size: 11px; }
+.review-toolbar-actions { display: flex; align-items: center; gap: 7px; }
+.review-toolbar-actions button { padding: 8px 10px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
+.review-toolbar-actions button.active { border-color: var(--color-accent); background: var(--color-soft); color: var(--color-primary); font-weight: 750; }
+.review-toolbar-actions button.primary { border-color: var(--color-accent); background: var(--color-accent); color: white; }
 .review h3 { font-size: 14px; margin: 20px 0 9px; }
 .review-list { display: grid; gap: 9px; }
 .review-row { display: flex; align-items: end; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
@@ -163,12 +201,14 @@ aside { display: grid; gap: 20px; }
 .review-row input, .review-row select { display: block; margin-top: 5px; }
 .review-row .compact { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; font-size: 12px; }
 .review-row .compact input { width: auto; margin: 0; accent-color: var(--color-accent); }
-.confidence { white-space: nowrap; font-size: 10px; color: var(--color-text-secondary); }
-.low-confidence { border-color: var(--color-warning-border); background: var(--color-warning-bg); }
-.low-confidence .confidence { color: var(--color-warning); font-weight: 800; }
+.review-row.confidence-medium { border-color: var(--color-warning-border); }
+.review-row.confidence-low { border-color: var(--color-error-border); background: var(--color-error-bg); }
+.review-row.active-review { outline: 3px solid rgb(31 138 99 / 22%); }
 .review-empty { padding: 14px; border-radius: var(--radius-sm); background: var(--color-background); color: var(--color-text-secondary); }
 .review-empty p { font-size: 12px; margin: 5px 0; }
 .reverse-button { display: flex; align-items: center; gap: 5px; white-space: nowrap; border: 1px solid var(--color-accent); background: var(--color-surface); color: var(--color-primary); border-radius: var(--radius-sm); padding: 9px; cursor: pointer; }
+.confirm-direction { display: flex; align-items: center; gap: 5px; white-space: nowrap; border: 1px solid var(--color-error); background: var(--color-error); color: white; border-radius: var(--radius-sm); padding: 9px; cursor: pointer; }
+.unconfirmed-directions { padding: 11px; border: 1px solid var(--color-error-border); border-radius: var(--radius-sm); background: var(--color-error-bg); color: var(--color-error); font-size: 12px; font-weight: 700; }
 .review-actions { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-top: 22px; }
 
 .home-screen { min-height: 100vh; background: radial-gradient(circle at 70% 15%, var(--color-home-mid) 0, var(--color-primary-dark) 44%, var(--color-home-deep) 100%); color: white; padding: 34px max(24px, calc((100vw - 1120px) / 2)) 70px; display: flex; flex-direction: column; }
@@ -205,6 +245,8 @@ aside { display: grid; gap: 20px; }
   .brand p { display: none; }
   .recognition-wrap { padding: 0 14px; }
   .review-row, .transition-review { align-items: stretch; flex-direction: column; }
+  .review-toolbar { align-items: stretch; flex-direction: column; }
+  .review-toolbar-actions { flex-wrap: wrap; }
 }
 @media (max-width: 750px) {
   .home-screen { padding: 24px 18px 40px; }

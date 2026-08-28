@@ -14,4 +14,13 @@ export interface AnalysisIssue {
   stateIds: string[];
   events?: string[];
   counterexample?: string[];
+  suggestions?: TransitionSuggestion[];
+}
+
+export interface TransitionSuggestion {
+  kind: 'add-transition';
+  from: string;
+  to: string;
+  event: string;
+  description: string;
 }

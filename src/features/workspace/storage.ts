@@ -1,4 +1,5 @@
 import type { StateMachine } from '../../core/types';
+import { isValidStateMachine } from '../../core/validate';
 
 export const workspaceStorageKey = 'stateink.workspace.v1';
 
@@ -8,17 +9,11 @@ export interface SavedWorkspace {
   screen: 'home' | 'workspace';
 }
 
-function isStateMachine(value: unknown): value is StateMachine {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<StateMachine>;
-  return Array.isArray(candidate.states) && Array.isArray(candidate.transitions);
-}
-
 export function parseSavedWorkspace(value: string | null): SavedWorkspace | undefined {
   if (!value) return undefined;
   try {
     const candidate = JSON.parse(value) as Partial<SavedWorkspace>;
-    if (!isStateMachine(candidate.machine)) return undefined;
+    if (!isValidStateMachine(candidate.machine)) return undefined;
     return {
       machine: candidate.machine,
       sampleKey: candidate.sampleKey === 'broken' ? 'broken' : 'valid',

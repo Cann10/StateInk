@@ -1,14 +1,11 @@
 # StateInk
 
-> **描いた設計を、動かして確かめる。**  
+> **描いた設計を、動かして確かめる。**<br>
 > 紙の状態遷移図を、実行・検証できる設計図へ。
 
 ## StateInkとは
 
 StateInkは、紙や画面上の状態遷移図を操作可能な設計へ変え、設計上の問題とそこへ至る最短操作列を示すWebアプリです。画像認識をゴールにせず、**問題を見つける → 自分で直す → 警告が消える → 実際に動かす**体験を中心にしています。
-
-Production: https://state-ink.vercel.app  
-Recognition API: https://stateink.onrender.com
 
 ## 制作背景と問題
 
@@ -26,23 +23,21 @@ Recognition API: https://stateink.onrender.com
 ## Architecture
 
 ```text
-画像 → FastAPI / OpenCV / Tesseract(jpn+eng) → RecognitionResult → 人によるReview
-                                                               ↓ Confirm
-Samples / Editor ─────────────────────────────→ StateMachine IR
-                                                  ├ Simulator
-                                                  ├ Analyzer
-                                                  └ Counterexample (BFS)
+画像 → FastAPI / OpenCV → RecognitionResult → 人によるReview
+                                              ↓ Confirm
+Samples / Editor ────────────────→ StateMachine IR
+                                      ├ Simulator
+                                      ├ Analyzer
+                                      └ Counterexample (BFS)
 ```
 
 `src/core`はReact・XYFlow・OpenCVに依存しません。Simulatorは曖昧な遷移を実行せず、Analyzerは初期状態不備、到達不能、Dead End、孤立、Transition Conflictを検出します。Tarjan法で循環SCCを求め、正常終了状態が存在する場合だけ、そこへ到達できない循環をNon-terminating Cycleとして報告します。BFSは問題状態までの最短イベント列を生成します。詳しくは[architecture](docs/architecture.md)を参照してください。
 
 ## Recognition pipelineとHuman-in-the-loop
 
-OpenCVの輪郭解析で円・楕円・長方形の状態候補、Hough線分とarrowhead候補から遷移候補を作ります。Tesseractの`jpn+eng` OCRが利用できる環境では、文字領域の位置から**状態内の文字をState名、矢印付近の文字をEvent名へ自動割り当て**します。複数トークンは読み順にまとめ、日本語間の不要な空白も正規化します。OCRできない場合は`State N` / `event_N`の仮名を残します。
+OpenCVの輪郭解析で円・楕円・長方形の状態候補、Hough線分とarrowhead候補から遷移候補を作ります。OCRはTesseractの`jpn+eng`で日本語・英語を読み、文字領域と図形の距離から、状態内／近傍の文字を状態名、矢印近傍の文字をイベント名へ割り当てます。複数語や短い文は空白を正規化して保持します。認識結果は**自動完成ではなく下書き**です。低confidenceの文字は自動命名せず、`State N` / `event_N`の仮名と警告を表示します。人がReviewで状態名、イベント、source、target、方向、initial/finalを確認・修正してからIRへ確定します。
 
-認識結果は**自動完成ではなく下書き**です。confidenceを表示し、人が状態名、イベント、source、target、方向、initial/finalを確認してからIRへ確定します。特に矢印方向と密な図、手書き文字のOCRは誤認識し得るため、Reviewで修正できることを正式な設計にしています。
-
-FA Database 1.1の24図による外部評価のSupported subset実測値は次のとおりです。これはOCR自動命名追加前に測定した**構造認識**の値で、OCR精度を示すものではありません。
+この判断は弱点を隠すためではありません。FA Database 1.1の24図による外部評価のSupported subset実測値は次のとおりです。
 
 | 指標 | 実測値 |
 |---|---:|
@@ -51,19 +46,17 @@ FA Database 1.1の24図による外部評価のSupported subset実測値は次�
 | Connection | 50.0% |
 | Direction | 29.4% |
 
-評価条件・overall値・出典は[外部評価記録](docs/external-evaluation.md)に記載しています。
+自動認識だけで完成させる品質ではないため、StateInkでは認識結果を下書きとして扱い、人間が確認するHuman-in-the-loop方式を採用しました。評価条件・overall値・出典は[外部評価記録](docs/external-evaluation.md)に記載しています。
 
 ## 対応範囲・制限
 
-- 対応: 白紙＋濃い線、円・楕円・長方形、明確な直線矢印、日本語・英語の状態名/イベント名のOCR下書き
-- OCR: 印刷文字や読みやすい文字ほど安定。小さい文字、崩れた手書き、複数行、線との重なりは誤認識しやすい
-- 構造認識の苦手: 曲線、self-loop、交差線、密な図、影、強い遠近歪み
-- 認識した接続・方向・文字はReviewで確認する
-- アカウント、共同編集、コード生成、完全UMLには対応しない
+- 対応: 白紙＋黒ペン、円・楕円・長方形、明確な直線矢印、日本語・英語・混在ラベル
+- 苦手: 崩した手書き文字、小さい文字、薄い文字、曲線・self-loop・交差線・密な図・影や強い遠近歪み
+- 保存、アカウント、共同編集、コード生成、完全UMLには対応しません
 
 ## AI利用
 
-設計・実装・テスト・文書化にCodexおよびChatGPTを利用しました。外部Vision/LLM API、Cloud Vision、独自ML学習は使用していません。作業単位の記録は[AI_USAGE.md](AI_USAGE.md)にあります。
+設計・実装・テスト・文書化にCodexを利用しました。外部Vision/LLM APIや独自ML学習は使用していません。作業単位の記録は[AI_USAGE.md](AI_USAGE.md)にあります。
 
 ## 起動方法
 
@@ -81,7 +74,7 @@ python -m pip install -r backend/requirements.txt
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
-OCRを利用する場合はTesseract本体と`eng` / `jpn` language dataを導入してください。Docker backendにはこれらを含めています。未導入でも構造候補と仮名を返します。
+Docker backendにはTesseractと日本語・英語language dataが含まれます。Dockerを使わず起動する場合は、Tesseract本体に加えて`jpn`と`eng`のtrained dataを導入してください。未導入でも仮名を持つ構造候補を返します。
 
 ```bash
 npm run check
@@ -91,25 +84,46 @@ npm run test:e2e
 
 ## Production deployment
 
-FrontendはViteの静的build、Recognition backendはFastAPIの独立サービスとして公開します。API URLはFrontendの**build時**、CORS originはBackendの**起動時**に設定します。
+FrontendはViteの静的build、Recognition backendはFastAPIの独立サービスとして公開します。API URLはFrontendの**build時**、CORS originはBackendの**起動時**に設定します。`VITE_*`はブラウザへ埋め込まれる公開値なので、秘密情報を設定しないでください。
+
+### 必須環境変数
 
 | 変数 | 設定場所 | 例 | 説明 |
 | --- | --- | --- | --- |
-| `VITE_API_BASE_URL` | Frontend build | `https://stateink.onrender.com` | Backend originのみ。`/api`は付けない |
-| `STATEINK_CORS_ORIGINS` | Backend runtime | `https://state-ink.vercel.app` | 許可するFrontend origin。複数はカンマ区切り |
-| `PORT` | Backend runtime | `8000` | 待受port |
+| `VITE_API_BASE_URL` | Frontend build | `https://api.example.com` | Render Backendのoriginのみ（通常は`/api`を付けない）。空なら同一originの`/api`を使用 |
+| `STATEINK_CORS_ORIGINS` | Backend runtime | `https://app.example.com` | 許可するFrontend origin。複数はカンマ区切り |
+| `PORT` | Backend runtime | `8000` | コンテナの待受port。未指定時は8000 |
 
-`.env`と`.env.*`はGit対象外です。`VITE_*`はブラウザへ埋め込まれる公開値なのでsecretを置きません。
+値の形は[`.env.example`](.env.example)を参照してください。`.env`と`.env.*`はGit対象外です。productionではHTTPSのFrontend originだけを`STATEINK_CORS_ORIGINS`へ列挙し、`*`を使用しないでください。
+
+### Dockerで公開する
 
 ```bash
 # Backend
 docker build -f Dockerfile.backend -t stateink-backend .
 docker run --rm -p 8000:8000 \
-  -e STATEINK_CORS_ORIGINS=https://state-ink.vercel.app \
+  -e STATEINK_CORS_ORIGINS=https://app.example.com \
   stateink-backend
+curl http://localhost:8000/api/health
 
-# Frontend
-VITE_API_BASE_URL=https://stateink.onrender.com npm run build
+# Frontend（API URLはbuild artifactへ埋め込まれる）
+docker build -f Dockerfile.frontend \
+  --build-arg VITE_API_BASE_URL=https://api.example.com \
+  -t stateink-frontend .
+docker run --rm -p 8080:8080 stateink-frontend
+curl http://localhost:8080/health
 ```
 
-公開直前の確認とrollback手順は[Production deployment runbook](docs/deployment.md)を参照してください。
+Frontendはnginxで静的ファイルを配信し、SPA fallbackを設定しています。Dockerを使わない場合は`VITE_API_BASE_URL=https://api.example.com npm run build`で生成した`dist/`を任意の静的ホスティングへ配置してください。BackendはPython 3.11で依存を導入し、次のように起動できます。
+
+```bash
+STATEINK_CORS_ORIGINS=https://app.example.com \
+PORT=8000 \
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+公開後はFrontend、`GET /api/health`、画像Reviewを同じproduction URLの組み合わせで確認してください。API URLを変更した場合、Frontendは再buildが必要です。
+
+Vercelでは`VITE_API_BASE_URL`にRenderの公開origin（例: `https://stateink-api.onrender.com`）を設定します。`/api/recognize`はFrontendが付加します。値を変更した後はVercelを再deployしてください。HTMLや`The page could not be found`が返る場合は、`$VITE_API_BASE_URL/api/health`と`$VITE_API_BASE_URL/api/recognize`が同じRender serviceを指すか確認します。
+
+公開直前のGit確認、確定環境変数、CORS確認、Critical user flow、rollback手順は[Production deployment runbook](docs/deployment.md)を使用してください。

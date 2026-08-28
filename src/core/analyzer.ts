@@ -43,6 +43,7 @@ function nonTerminatingComponents(machine: StateMachine, reached: Set<string>): 
 
 export function analyze(machine: StateMachine): AnalysisIssue[] {
   const issues: AnalysisIssue[] = []; const initials = machine.states.filter((state) => state.initial);
+  const singleInitial = initials.length === 1 ? initials[0] : undefined;
   if (initials.length === 0) issues.push(issue({ type: 'missing-initial', severity: 'error', title: '開始地点がありません', technicalName: 'Missing Initial State', description: '最初に動き始める状態を1つ指定してください。', stateIds: [] }));
   if (initials.length > 1) issues.push(issue({ type: 'multiple-initial', severity: 'error', title: '開始地点が複数あります', technicalName: 'Multiple Initial States', description: '開始状態は1つだけにしてください。', stateIds: initials.map((state) => state.id) }));
   const reached = reachable(machine);
@@ -50,7 +51,10 @@ export function analyze(machine: StateMachine): AnalysisIssue[] {
     const incoming = machine.transitions.some((edge) => edge.to === state.id); const outgoing = machine.transitions.some((edge) => edge.from === state.id);
     if (!incoming && !outgoing && !state.initial) issues.push(issue({ type: 'isolated', severity: 'warning', title: `「${state.name}」が図から孤立しています`, technicalName: 'Isolated State', description: 'この状態はほかの状態とつながっていません。', stateIds: [state.id] }));
     else if (!reached.has(state.id)) issues.push(issue({ type: 'unreachable', severity: 'warning', title: `「${state.name}」には到達できません`, technicalName: 'Unreachable State', description: '開始地点からこの状態へ移動する操作がありません。', stateIds: [state.id] }));
-    if (!outgoing && !state.final && reached.has(state.id)) issues.push(issue({ type: 'dead-end', severity: 'error', title: `「${state.name}」に入ると、どこにも移動できません`, technicalName: 'Dead End State', description: '意図した終了状態でなければ、戻る遷移を追加してください。', stateIds: [state.id], counterexample: shortestEventPath(machine, state.id) }));
+    if (!outgoing && !state.final && reached.has(state.id)) issues.push(issue({
+      type: 'dead-end', severity: 'error', title: `「${state.name}」に入ると、どこにも移動できません`, technicalName: 'Dead End State', description: '意図した終了状態でなければ、戻る遷移を追加してください。', stateIds: [state.id], counterexample: shortestEventPath(machine, state.id),
+      suggestions: singleInitial && singleInitial.id !== state.id ? [{ kind: 'add-transition', from: state.id, to: singleInitial.id, event: 'return', description: `「${singleInitial.name}」へ戻る遷移を追加` }] : undefined,
+    }));
   }
   const grouped = new Map<string, typeof machine.transitions>();
   for (const edge of machine.transitions) { const key = `${edge.from}\0${edge.event}`; grouped.set(key, [...(grouped.get(key) ?? []), edge]); }

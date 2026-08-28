@@ -26,5 +26,13 @@ export async function parseRecognitionResponse(response: Response): Promise<Reco
   if (!isRecognitionResult(body)) {
     throw new Error('認識APIの応答形式が正しくありません。BackendとFrontendのバージョンを確認してください。');
   }
-  return body;
+  return {
+    ...body,
+    transitions: body.transitions.map((transition) => ({
+      ...transition,
+      direction_confirmed: typeof transition.direction_confirmed === 'boolean'
+        ? transition.direction_confirmed
+        : transition.confidence >= 0.7,
+    })),
+  };
 }

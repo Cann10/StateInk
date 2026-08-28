@@ -92,10 +92,26 @@ def evaluate_file(path: Path, debug_dir: Path | None = None) -> dict:
         if math.dist(center, truth["states"][nearest]) < 90:
             mapping[predicted_id] = nearest; available.remove(nearest)
     predicted = {(mapping.get(edge.from_state, "?"), mapping.get(edge.to, "?")) for edge in result.transitions}
+    confirmed_predicted = {
+        (mapping.get(edge.from_state, "?"), mapping.get(edge.to, "?"))
+        for edge in result.transitions
+        if edge.direction_confirmed
+    }
+    review_directions = sum(not edge.direction_confirmed for edge in result.transitions)
     predicted_undirected = {frozenset(edge) for edge in predicted}
     def score(relations):
         expected = {(source, target) for _, source, target in relations}; expected_undirected = {frozenset(edge) for edge in expected}
-        return {"expected_transitions": len(relations), "transition_tp": min(len(result.transitions), len(relations)), "expected_connections": len(expected_undirected), "connection_tp": len(expected_undirected & predicted_undirected), "expected_directions": len(expected), "direction_tp": len(expected & predicted)}, expected, expected_undirected
+        return {
+            "expected_transitions": len(relations),
+            "transition_tp": min(len(result.transitions), len(relations)),
+            "expected_connections": len(expected_undirected),
+            "connection_tp": len(expected_undirected & predicted_undirected),
+            "expected_directions": len(expected),
+            "direction_tp": len(expected & predicted),
+            "confirmed_direction_predictions": len(confirmed_predicted),
+            "confirmed_direction_tp": len(expected & confirmed_predicted),
+            "review_directions": review_directions,
+        }, expected, expected_undirected
     overall, _, _ = score(truth["relations"])
     supported, expected, expected_undirected = score(truth["supported_relations"])
     failures = Counter()
@@ -126,11 +142,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(); parser.add_argument("dataset", type=Path); parser.add_argument("--limit", type=int, default=24); parser.add_argument("--output", type=Path); parser.add_argument("--debug-dir", type=Path)
     args = parser.parse_args(); files = sorted(args.dataset.glob("*.inkml"))[:args.limit]
     results = [evaluate_file(path, args.debug_dir) for path in files]; subset = [item for item in results if not item["unsupported"]]
-    metric_keys = ("expected_transitions", "transition_tp", "expected_connections", "connection_tp", "expected_directions", "direction_tp")
+    metric_keys = (
+        "expected_transitions", "transition_tp", "expected_connections", "connection_tp",
+        "expected_directions", "direction_tp", "confirmed_direction_predictions",
+        "confirmed_direction_tp", "review_directions",
+    )
     def aggregate(items, scope):
         totals = {"expected_states": sum(item["expected_states"] for item in items), "state_tp": sum(item["state_tp"] for item in items)}
         totals.update({key: sum(item[scope][key] for item in items) for key in metric_keys}); return totals
     overall_totals = aggregate(results, "overall"); supported_totals = aggregate(subset, "supported")
+    for totals in (overall_totals, supported_totals):
+        confirmed = totals["confirmed_direction_predictions"]
+        candidates = confirmed + totals["review_directions"]
+        totals["confirmed_direction_accuracy"] = round(totals["confirmed_direction_tp"] / confirmed, 4) if confirmed else None
+        totals["direction_review_rate"] = round(totals["review_directions"] / candidates, 4) if candidates else None
     failures = sum((Counter(item["failures"]) for item in subset), Counter())
     failure_categories = ("state contour", "line detection", "arrowhead", "source/target association", "direction", "unsupported geometry", "OCR")
     failures = {category: failures.get(category, 0) for category in failure_categories}
