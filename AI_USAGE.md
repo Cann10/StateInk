@@ -51,3 +51,7 @@ Codexが既存のRecognition/Review境界を維持したまま、Tesseract `jpn+
 ## 2026-08-28 — Codex（提出版統合と品質仕上げ）
 
 Codexが太線State輪郭の階層判定修正、`direction_confirmed`による方向未確認ゲート、遠近・傾き補正の前処理、曲線コネクタ検出、Analyzer反例のreplay経路強調と修正候補提示を8/28安定版として確定しました。続いて壊れたlocalStorage/JSONを安全に拒否する入力検証、認識APIの25秒タイムアウトと再試行導線、Tesseract導入言語の自動選択（`jpn`/`eng`/`jpn+eng`）、モックなしの実OCRスモークテスト、GitHub Actions CIを追加しました。`origin/main`（ChatGPTライン9コミット）は非破壊で保持したまま、そこを土台にした統合branchへ8/28実装を再適用しています。認識アルゴリズム・UI・Analyzerの設計は変更していません。
+
+## 2026-08-29 — Codex（提出前 品質仕上げ）
+
+Codexが現行 `main` を土台に、初見UX・堅牢性・アクセシビリティの低リスク改善をまとめて実施しました。UI文言と見出しで「次に何をするか」を明確化（Home の入口説明、常設4ステップ表示、カード見出しの日英併記と1行説明、Recognition Review の要確認優先誘導、空/エラー/読み込み中の説明強化）。描画時例外で白画面にしない ErrorBoundary、localStorage の save/load を例外から保護、`/api/recognize` の予期しない失敗を traceback を出さない日本語メッセージ付き 500 へ整形、進めかたステップと設計チェック結果・現在状態への `aria-current` / `aria-live` 付与、モバイルでのカード見出しボタン折返し抑止、Analyzer「問題を再現」時に Simulator を可視位置へスクロール。認識アルゴリズム・Analyzer・Simulator のロジックは変更していません。lint / Vitest / build / backend pytest / Playwright E2E と GitHub Actions CI で全体破損がないことを確認しています。
