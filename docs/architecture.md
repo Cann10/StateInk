@@ -26,7 +26,7 @@
 
 ## Recognition（Phase 2）
 
-`画像 → FastAPI / OpenCV → RecognitionResult → Review → StateMachine IR` の一方向依存です。RecognitionResultは候補のgeometry、confidence、warningsを保持し、coreのIRとは分離します。OpenCVは適応的二値化、輪郭による円・楕円・長方形候補、確率的Hough変換による接続候補を生成します。Tesseractは`jpn+eng`で日本語・英語の文字領域をline単位に読み、改行と余分な空白を正規化します。文字領域はState内／近傍を優先し、残りをTransition線分までの距離で関連付けます。複数語と短い文は同じ候補へまとめ、OCR confidenceが55%未満なら自動命名しません。文字が読めない場合も `State 1` / `event_1` の仮名で構造を返します。
+`画像 → FastAPI / OpenCV → RecognitionResult → Review → StateMachine IR` の一方向依存です。RecognitionResultは候補のgeometry、confidence、warningsを保持し、coreのIRとは分離します。OpenCVは適応的二値化、輪郭による円・楕円・長方形候補、確率的Hough変換による接続候補を生成します。Tesseractは`jpn+eng`で日本語・英語の文字領域をline単位に読み、改行と余分な空白を正規化します。起動時に導入済みのlanguage dataを確認し、`jpn`と`eng`の両方があれば`jpn+eng`、片方だけなら`jpn`または`eng`へ自動でfallbackし、いずれも無ければOCRをスキップします。文字領域はState内／近傍を優先し、残りをTransition線分までの距離で関連付けます。複数語と短い文は同じ候補へまとめ、OCR confidenceが55%未満なら自動命名しません。文字が読めない場合も `State 1` / `event_1` の仮名で構造を返します。
 
 認識結果を直接実行せず、必ずReviewで状態名、イベント名、接続方向、initial/final、不要候補を人が確認します。低confidenceを隠さず、shaft端付近のV字候補から推定した方向も確信度が低ければ要確認として提示します。Reviewではsource/targetの選択と「向きを反転」で修正できます。これはOCR精度より「構造を下書きにして人が直せること」を優先するHuman-in-the-loop方針です。Confirm後だけ `recognitionToStateMachine` がIRへ変換し、既存Editor、Simulator、Analyzerには認識ライブラリを依存させません。
 
@@ -36,4 +36,4 @@ Reviewは元画像と候補geometryを同じviewBoxへ重ね、高・中・低�
 
 ## Deployment boundary
 
-Frontendは静的artifact、Recognition backendは独立したFastAPI serviceとしてdeployします。Frontendはbuild時の`VITE_API_BASE_URL`をRecognition requestのoriginに使い、未指定ならlocal proxyや同一origin向けの相対`/api`を使います。Backendはruntimeの`STATEINK_CORS_ORIGINS`だけを許可します。`VITE_*`は公開bundleへ含まれるためsecretを置きません。API URLの切替はこのtransport boundaryだけに限定し、StateMachine IRとcoreには環境依存を持ち込みません。
+Frontendは静的artifact、Recognition backendは独立したFastAPI serviceとしてdeployします。Frontendはbuild時の`VITE_API_BASE_URL`をRecognition requestのoriginに使い、未指定ならlocal proxyや同一origin向けの相対`/api`を使います。Backendはruntimeの`STATEINK_CORS_ORIGINS`だけを許可します。Backend Docker imageにはTesseract本体と`eng` / `jpn` language dataを同梱し、production環境でも日本語・英語OCRを利用できるようにしています。`VITE_*`は公開bundleへ含まれるためsecretを置きません。API URLの切替はこのtransport boundaryだけに限定し、StateMachine IRとcoreには環境依存を持ち込みません。

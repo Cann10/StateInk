@@ -63,7 +63,7 @@ FA Database 1.1の手描き有限オートマトン24図を用いて評価しま
 | Connection | 50.0% |
 | Direction | 29.4% |
 
-ConnectionとDirectionは自動完成品質ではありません。この結果を隠さず、Human-in-the-loopを正式な製品設計として採用しました。raw datasetはリポジトリへ含めず、評価条件、Overall値、失敗分類は`docs/external-evaluation.md`へ記録しています。
+ConnectionとDirectionは自動完成品質ではありません。この結果を隠さず、Human-in-the-loopを正式な製品設計として採用しました。この外部評価は**構造認識**の指標であり、OCR自動命名の正解率を示す数値ではありません。OCRについては十分な外部benchmarkがないため、成功率を数値としては主張しません。raw datasetはリポジトリへ含めず、評価条件、Overall値、失敗分類は`docs/external-evaluation.md`へ記録しています。
 
 ## 制限事項
 
@@ -72,6 +72,12 @@ ConnectionとDirectionは自動完成品質ではありません。この結果�
 - 認識した接続と方向はReviewでの確認が必須
 - 編集内容の永続保存、アカウント、共同編集、コード生成、完全UMLには非対応
 
+## 公開先
+
+- Webアプリ: https://state-ink.vercel.app
+- Recognition API: https://stateink.onrender.com
+- Source: https://github.com/Cann10/StateInk
+
 ## AI利用
 
-設計レビュー、実装、テスト、ドキュメント整備にOpenAI Codexを利用しました。外部のVision/LLM API、Cloud Vision、独自ML学習は利用していません。作業内容は`AI_USAGE.md`へ時系列で記録し、提出者がアルゴリズムと設計判断を説明できることを前提にレビューしています。
+設計レビュー、実装、テスト、ドキュメント整備にOpenAI CodexおよびChatGPTを利用しました。外部のVision/LLM API、Cloud Vision、独自ML学習は利用していません。作業内容は`AI_USAGE.md`へ時系列で記録し、提出者がアルゴリズムと設計判断を説明できることを前提にレビューしています。

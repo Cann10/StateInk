@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 import re
 import shutil
@@ -15,6 +16,30 @@ from .models import Geometry, RecognitionResult, RecognizedState, RecognizedTran
 
 OCR_LANGUAGE = "jpn+eng"
 OCR_AUTO_LABEL_CONFIDENCE = 0.55
+
+
+@lru_cache(maxsize=1)
+def _available_ocr_language() -> str | None:
+    """Return the best installed Tesseract language string.
+
+    Prefers ``jpn+eng`` when both packs are present and degrades to whichever
+    single pack exists, so a box that is missing one language still runs OCR
+    instead of raising. ``None`` means OCR should be skipped entirely. Cached
+    because it shells out to ``tesseract --list-langs``.
+    """
+    if not shutil.which("tesseract"):
+        return None
+    try:
+        languages = set(pytesseract.get_languages(config=""))
+    except (pytesseract.TesseractError, OSError):
+        return None
+    if {"jpn", "eng"}.issubset(languages):
+        return "jpn+eng"
+    if "jpn" in languages:
+        return "jpn"
+    if "eng" in languages:
+        return "eng"
+    return None
 
 
 @dataclass(frozen=True)
@@ -220,7 +245,7 @@ def _map_box(box: tuple[int, int, int, int], inverse_transform: np.ndarray, imag
 def _extract_ocr_regions(image: np.ndarray) -> list[_OcrRegion]:
     words = pytesseract.image_to_data(
         image,
-        lang=OCR_LANGUAGE,
+        lang=_available_ocr_language() or OCR_LANGUAGE,
         config="--oem 1 --psm 11",
         output_type=pytesseract.Output.DICT,
         timeout=12,
@@ -512,7 +537,7 @@ def _crop_ocr_region(image: np.ndarray, box: tuple[int, int, int, int], *, psm: 
     crop = image[y1:y2, x1:x2]
     data = pytesseract.image_to_data(
         crop,
-        lang=OCR_LANGUAGE,
+        lang=_available_ocr_language() or OCR_LANGUAGE,
         config=f"--oem 1 --psm {psm}",
         output_type=pytesseract.Output.DICT,
         timeout=5,
