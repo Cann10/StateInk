@@ -43,7 +43,9 @@ def test_fixture_structure(expected_path: Path, generated_fixtures: Path) -> Non
     assert len(result.states) == expected["states"]
     assert len(result.transitions) == expected["transitions"]
     assert all(edge.from_state != edge.to for edge in result.transitions)
-    assert result.processing_ms < 3_000
+    # Upscaled multi-PSM label OCR adds Tesseract passes; still well within the
+    # frontend's 25s recognition timeout.
+    assert result.processing_ms < 8_000
 
 
 def test_api_returns_reviewable_result(generated_fixtures: Path) -> None:
