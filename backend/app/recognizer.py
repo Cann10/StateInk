@@ -570,7 +570,7 @@ def _crop_ocr_region(image: np.ndarray, box: tuple[int, int, int, int], *, psm: 
 _ROI_TARGET_HEIGHT = 150
 _ROI_MAX_SCALE = 4.0
 _ROI_FAST_PSM = 7                 # single upscaled-grayscale line pass
-_ROI_ESCALATION_PSMS = (6, 11)
+_ROI_ESCALATION_PSMS = (6,)
 _ROI_FAST_ACCEPT = 0.72          # a tier-1 reading this strong is kept as-is
 _ROI_ESCALATION_STOP = 0.86     # any escalation reading this strong ends the loop
 _ROI_ESCALATION_BUDGET = 6      # ROIs allowed to run the extra passes per image
@@ -667,6 +667,7 @@ def _read_label_from_roi(
     inner_margin_ratio: float,
     budget: _OcrBudget | None = None,
     cache: dict | None = None,
+    fast_only: bool = False,
 ) -> _OcrRegion | None:
     if cache is not None and box in cache:
         return cache[box]
@@ -677,8 +678,9 @@ def _read_label_from_roi(
         language = _available_ocr_language() or OCR_LANGUAGE
         # Tier 1: a single pass on the upscaled grayscale crop.
         best_text, best_confidence = _ocr_roi_pass(roi, language, _ROI_FAST_PSM)
-        # Tier 2: only weak readings escalate, and only while the per-image budget lasts.
-        if best_confidence < _ROI_FAST_ACCEPT and (budget is None or budget.take()):
+        # Tier 2: only weak readings escalate, only if not fast_only, and only
+        # while the per-image budget lasts.
+        if not fast_only and best_confidence < _ROI_FAST_ACCEPT and (budget is None or budget.take()):
             attempts = [(_binarize_label_roi(roi), _ROI_FAST_PSM)]
             attempts += [(roi, psm) for psm in _ROI_ESCALATION_PSMS]
             for image_variant, psm in attempts:
@@ -1121,7 +1123,8 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
             text, confidence = global_text, global_confidence
         else:
             local = _read_label_from_roi(
-                processed.ocr_gray, box, inner_margin_ratio=0.16, budget=ocr_budget, cache=roi_cache
+                processed.ocr_gray, box, inner_margin_ratio=0.16, budget=ocr_budget, cache=roi_cache,
+                fast_only=global_confidence >= 0.6,
             )
             text, confidence = _resolve_label(global_text, global_confidence, local)
         if not text:
@@ -1145,6 +1148,7 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
             local = _read_label_from_roi(
                 processed.ocr_gray, _transition_label_roi(detected[2], detected[3]),
                 inner_margin_ratio=0.0, budget=ocr_budget, cache=roi_cache,
+                fast_only=global_confidence >= 0.6,
             )
             if local is not None and _state_ocr_owner(local, boxes) is not None:
                 local = None  # midpoint crop drifted into a state; ignore it
