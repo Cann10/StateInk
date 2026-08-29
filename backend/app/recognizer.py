@@ -637,9 +637,12 @@ def _binarize_label_roi(roi: np.ndarray) -> np.ndarray:
 def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int, int, int]:
     middle_x, middle_y = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
     length = math.dist(p1, p2)
-    roi_width = int(max(96, min(260, length * 0.66)))
-    roi_height = 104
-    return (middle_x - roi_width // 2, middle_y - int(roi_height * 0.72), roi_width, roi_height)
+    # The event label sits near the shaft midpoint, but *where* varies: above a
+    # roughly horizontal arrow, or to either side of a diagonal one. A square
+    # window scaled to the arrow length, nudged up, catches all of those
+    # without reaching into a state (arrows in real diagrams are long).
+    side = int(max(120, min(320, length * 0.62)))
+    return (middle_x - side // 2, middle_y - side // 2 - int(length * 0.05), side, side)
 
 
 _BATCH_GAP = 46
