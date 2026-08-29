@@ -34,3 +34,29 @@ class RecognitionResult(BaseModel):
     transitions: list[RecognizedTransition]
     warnings: list[str]
     processing_ms: float
+
+
+class RefineRegionIn(BaseModel):
+    id: str
+    kind: str  # "state" | "transition"
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class RefineRequest(BaseModel):
+    regions: list[RefineRegionIn]
+
+
+class RefineItemOut(BaseModel):
+    id: str
+    text: str
+    confidence: float = Field(ge=0, le=1)
+
+
+class RefineResultOut(BaseModel):
+    items: list[RefineItemOut]
+    processing_ms: float
+    timed_out: bool = False
+    attempted: int = 0

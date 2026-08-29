@@ -1,3 +1,4 @@
+import { apiUrl } from '../../config';
 import type { RecognitionResult } from './types';
 
 /** Turn a fetch/parse failure into a short Japanese message the reviewer can act on. */
@@ -47,4 +48,59 @@ export async function parseRecognitionResponse(response: Response): Promise<Reco
         : transition.confidence >= 0.7,
     })),
   };
+}
+
+/** One weak box to re-read at high accuracy. Geometry is in the uploaded-image space. */
+export interface RefineTarget {
+  id: string;
+  kind: 'state' | 'transition';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface RefineResult {
+  items: { id: string; text: string; confidence: number }[];
+  processing_ms: number;
+  timed_out: boolean;
+  attempted: number;
+}
+
+function isRefineResult(value: unknown): value is RefineResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<RefineResult>;
+  return Array.isArray(candidate.items) && typeof candidate.processing_ms === 'number';
+}
+
+/**
+ * Ask the backend to re-read only the given boxes with the slow, exhaustive
+ * OCR pass. Never changes structure/connection/direction — the caller applies
+ * the returned text to names/events itself.
+ */
+export async function refineRecognition(
+  file: File,
+  targets: RefineTarget[],
+  signal: AbortSignal,
+): Promise<RefineResult> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('regions', JSON.stringify({ regions: targets }));
+  const response = await fetch(apiUrl('/api/recognize/refine'), { method: 'POST', body: form, signal });
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!contentType.includes('application/json')) {
+    await response.text();
+    throw new Error(`高精度再読取APIがJSONを返しませんでした（HTTP ${response.status}）。`);
+  }
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const detail = typeof body === 'object' && body !== null && 'detail' in body
+      ? (body as { detail?: unknown }).detail
+      : undefined;
+    throw new Error(typeof detail === 'string' ? detail : `高精度再読取でエラーが発生しました（HTTP ${response.status}）。`);
+  }
+  if (!isRefineResult(body)) {
+    throw new Error('高精度再読取の応答形式が正しくありません。');
+  }
+  return body;
 }
