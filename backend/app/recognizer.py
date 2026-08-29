@@ -574,6 +574,7 @@ _ROI_ESCALATION_PSMS = (6, 11)
 _ROI_FAST_ACCEPT = 0.72          # a tier-1 reading this strong is kept as-is
 _ROI_ESCALATION_STOP = 0.86     # any escalation reading this strong ends the loop
 _ROI_ESCALATION_BUDGET = 6      # ROIs allowed to run the extra passes per image
+_OCR_PHASE_BUDGET_S = 12.0      # wall-clock cap for global + local OCR combined
 
 
 class _OcrBudget:
@@ -1016,12 +1017,29 @@ def _detect_transitions(binary: np.ndarray, boxes: list[tuple[int, int, int, int
 
 def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionResult:
     started = time.perf_counter()
+    timings: dict[str, float] = {}
+
+    def _mark(name: str, since: float) -> None:
+        timings[name] = round((time.perf_counter() - since) * 1000, 1)
+
+    # Hard wall-clock deadline for the whole OCR phase so recognition always
+    # returns well under the frontend's 25s timeout, even on a slow/cold host.
+    ocr_deadline = started + _OCR_PHASE_BUDGET_S
+
+    stage = time.perf_counter()
     image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("画像を読み取れませんでした")
+    _mark("decode", stage)
+
+    stage = time.perf_counter()
     processed = _preprocess_image(image)
+    _mark("preprocess", stage)
     gray, binary = processed.gray, processed.binary
+
+    stage = time.perf_counter()
     boxes = _detect_states(processed.state_binary)
+    _mark("detect_states", stage)
     mapped_boxes = [_map_box(box, processed.inverse_transform, image.shape[:2]) for box in boxes]
     structure_confidence = min(0.82, max(0.5, 0.62 + processed.quality * 0.2))
     states = [
@@ -1036,7 +1054,9 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     ]
     transitions: list[RecognizedTransition] = []
     transition_debug=[]
+    stage = time.perf_counter()
     detected_transitions = _detect_transitions(binary, boxes, transition_debug)
+    _mark("detect_transitions", stage)
     for index, detected in enumerate(detected_transitions):
         source, target, p1, p2, confidence = detected[:5]
         direction_confirmed = detected[5] if len(detected) > 5 else confidence >= .7
@@ -1060,13 +1080,25 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     warnings = []
     ocr_regions: list[_OcrRegion] = []
     ocr_failed = False
-    if shutil.which("tesseract"):
-        try:
-            ocr_regions = _extract_ocr_regions(gray)
-        except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
-            ocr_failed = True
-    else:
+    ocr_truncated = False
+    if not shutil.which("tesseract"):
         ocr_failed = True
+    elif not boxes and not detected_transitions:
+        pass  # nothing to label
+    else:
+        stage = time.perf_counter()
+        _available_ocr_language()  # first call spawns `tesseract --list-langs`; cached after
+        _mark("tesseract_startup", stage)
+        if time.perf_counter() >= ocr_deadline:
+            ocr_truncated = True
+        else:
+            try:
+                stage = time.perf_counter()
+                ocr_regions = _extract_ocr_regions(gray)
+                _mark("global_ocr", stage)
+            except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
+                ocr_failed = True
+    local_ocr_started = time.perf_counter()
 
     state_ocr, transition_ocr = _associate_ocr_regions(
         ocr_regions,
@@ -1083,6 +1115,9 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     for state, box, regions in zip(states, boxes, state_ocr):
         global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
         if ocr_failed or global_confidence >= global_trust:
+            text, confidence = global_text, global_confidence
+        elif time.perf_counter() >= ocr_deadline:
+            ocr_truncated = True
             text, confidence = global_text, global_confidence
         else:
             local = _read_label_from_roi(
@@ -1103,6 +1138,9 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
         global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
         if ocr_failed or global_confidence >= global_trust:
             text, confidence = global_text, global_confidence
+        elif time.perf_counter() >= ocr_deadline:
+            ocr_truncated = True
+            text, confidence = global_text, global_confidence
         else:
             local = _read_label_from_roi(
                 processed.ocr_gray, _transition_label_roi(detected[2], detected[3]),
@@ -1122,6 +1160,10 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
             transition.confidence = min(transition.confidence, round(confidence, 2))
             low_ocr_labels.append(f"{transition.event} ({confidence:.0%})")
 
+    timings["local_ocr"] = round((time.perf_counter() - local_ocr_started) * 1000, 1)
+
+    if ocr_truncated and (states or transitions):
+        warnings.append("処理時間の都合で一部の名前は仮名のままです。Reviewで確認してください。")
     if ocr_failed and (states or transitions):
         warnings.append("OCRを利用できなかったため、名前は仮名です。Reviewで修正してください。")
     elif low_ocr_labels:
@@ -1142,4 +1184,7 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
         warnings.append(f"方向の確信度が低い遷移が{unconfirmed_directions}件あります。Reviewでsource / targetを確認してください。")
     if any(item.confidence < 0.7 for item in [*states, *transitions]):
         warnings.append("読み取りを確認してください。薄い線や矢印方向は誤認識することがあります。")
+    timings["total"] = round((time.perf_counter() - started) * 1000, 1)
+    if _debug is not None:
+        _debug["timings"] = timings
     return RecognitionResult(states=states, transitions=transitions, warnings=warnings, processing_ms=round((time.perf_counter() - started) * 1000, 2))

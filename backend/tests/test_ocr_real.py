@@ -128,3 +128,71 @@ def test_printed_state_and_event_labels_are_read() -> None:
     assert not any(name.startswith("State ") for name in names), names
     if events:
         assert any("coin" in event.lower() for event in events), events
+
+
+def _diagram(font_path, centres, names, arrows, events, size, rot):
+    from PIL import Image, ImageDraw, ImageFont
+    w, h = size
+    img = np.full((h, w, 3), 255, np.uint8)
+    for cx, cy in centres:
+        cv2.ellipse(img, (cx, cy), (96, 56), 0, 0, 360, (0, 0, 0), 3)
+    for a, b in arrows:
+        (x1, y1), (x2, y2) = centres[a], centres[b]
+        cv2.arrowedLine(img, (x1 + 96, y1), (x2 - 96, y2), (0, 0, 0), 3, tipLength=0.1)
+    pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    d = ImageDraw.Draw(pil)
+    lf = ImageFont.truetype(font_path, 22)
+    ef = ImageFont.truetype(font_path, 18)
+    for (cx, cy), nm in zip(centres, names):
+        d.text((cx - 46, cy - 12), nm, font=lf, fill=(0, 0, 0))
+    for (a, b), nm in zip(arrows, events):
+        (x1, y1), (x2, y2) = centres[a], centres[b]
+        d.text(((x1 + x2) // 2 - 22, (y1 + y2) // 2 - 26), nm, font=ef, fill=(0, 0, 0))
+    out = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+    m = cv2.getRotationMatrix2D((w / 2, h / 2), rot, 1.0)
+    out = cv2.warpAffine(out, m, (w, h), borderValue=(255, 255, 255))
+    ok, buf = cv2.imencode(".png", out)
+    assert ok
+    return buf.tobytes()
+
+
+def _score(result, exp_states, exp_events):
+    def norm(t): return "".join(c for c in t.lower() if c.isalnum())
+    exp_s = [norm(x) for x in exp_states]
+    exp_e = [norm(x) for x in exp_events]
+    got_s = [norm(x.name) for x in result.states]
+    got_e = [norm(x.event) for x in result.transitions]
+    correct = sum(1 for g in got_s if any(g and (g in e or e in g) for e in exp_s))
+    correct += sum(1 for g in got_e if any(g and (g in e or e in g) for e in exp_e))
+    placeholder = sum(1 for x in result.states if x.name.startswith("State ")) +                   sum(1 for x in result.transitions if x.event.startswith("event_"))
+    auto = sum(1 for x in result.states if x.confidence >= 0.8) +            sum(1 for x in result.transitions if x.direction_confirmed and x.confidence >= 0.8)
+    total = len(result.states) + len(result.transitions)
+    return dict(correct=correct, placeholder=placeholder, auto_confirmed=auto,
+               review=total - auto, states=len(result.states), transitions=len(result.transitions))
+
+
+def test_measure_pipeline() -> None:
+    font_path = next((p for p in _LATIN_FONT_CANDIDATES if os.path.exists(p)), None)
+    if font_path is None:
+        pytest.skip("no font")
+    from app.recognizer import recognize_image
+
+    normal = _diagram(font_path, [(150, 190), (610, 190)], ["WAITING", "DISPENSE"],
+                      [(0, 1)], ["coin"], (760, 380), 3.0)
+    busy = _diagram(font_path,
+                    [(120, 130), (430, 130), (740, 130), (1050, 130), (585, 380)],
+                    ["WAITING", "PENDING", "PAID", "DISPENSE", "REFUND"],
+                    [(0, 1), (1, 2), (2, 3), (3, 4)],
+                    ["coin", "confirm", "select", "cancel"], (1180, 520), 2.0)
+
+    report = {}
+    for tag, png, es, ee in (("normal", normal, ["WAITING", "DISPENSE"], ["coin"]),
+                             ("busy", busy, ["WAITING", "PENDING", "PAID", "DISPENSE", "REFUND"],
+                              ["coin", "confirm", "select", "cancel"])):
+        dbg = {}
+        r = recognize_image(png, _debug=dbg)
+        report[tag] = dict(processing_ms=r.processing_ms, timings=dbg.get("timings"),
+                           **_score(r, es, ee),
+                           names=[s.name for s in r.states], events=[t.event for t in r.transitions])
+
+    assert False, "[MEASURE-PIPELINE] " + repr(report)
