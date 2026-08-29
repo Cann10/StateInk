@@ -703,6 +703,86 @@ def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int
     return (middle_x - roi_width // 2, middle_y - roi_height // 2, roi_width, roi_height)
 
 
+_BATCH_ROW_HEIGHT = 96
+_BATCH_GAP = 26
+
+
+def _read_labels_batched(
+    gray: np.ndarray,
+    rois: list[tuple[object, tuple[int, int, int, int]]],
+    *,
+    binarized: bool = False,
+) -> dict:
+    """OCR every weak ROI in ONE Tesseract call.
+
+    Each ROI's upscaled crop is stacked into a single tall montage; a `--psm 6`
+    pass reads it as a block of lines, and words are mapped back to their source
+    ROI by vertical position. This trades N subprocess spawns for one.
+    """
+    prepared: list[tuple[object, tuple[int, int, int, int], np.ndarray]] = []
+    for key, box in rois:
+        roi = _prepare_label_roi(gray, box, inner_margin_ratio=0.0)
+        if roi is not None:
+            prepared.append((key, box, roi))
+    if not prepared:
+        return {}
+
+    width = max(roi.shape[1] for _, _, roi in prepared)
+    rows: list[np.ndarray] = []
+    spans: list[tuple[object, tuple[int, int, int, int], int, int]] = []
+    cursor = 0
+    for key, box, roi in prepared:
+        cell = cv2.resize(roi, (width, _BATCH_ROW_HEIGHT), interpolation=cv2.INTER_AREA)
+        if binarized:
+            cell = _binarize_label_roi(cell)
+        rows.append(cell)
+        rows.append(np.full((_BATCH_GAP, width), 255, np.uint8))
+        spans.append((key, box, cursor, cursor + _BATCH_ROW_HEIGHT))
+        cursor += _BATCH_ROW_HEIGHT + _BATCH_GAP
+    montage = cv2.copyMakeBorder(np.vstack(rows), 16, 16, 16, 16, cv2.BORDER_CONSTANT, value=255)
+
+    try:
+        data = pytesseract.image_to_data(
+            montage,
+            lang=_available_ocr_language() or OCR_LANGUAGE,
+            config="--oem 1 --psm 6",
+            output_type=pytesseract.Output.DICT,
+            timeout=15,
+        )
+    except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
+        return {}
+
+    buckets: dict[int, list[tuple[int, str, float, int]]] = {index: [] for index in range(len(spans))}
+    for i, raw_text in enumerate(data.get("text", [])):
+        text = _normalize_ocr_text(str(raw_text))
+        try:
+            confidence = float(data["conf"][i]) / 100
+            top = int(data["top"][i]) - 16
+            left = int(data["left"][i])
+            height = int(data["height"][i])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if confidence < 0 or not text or not any(ch.isalnum() for ch in text):
+            continue
+        middle = top + height / 2
+        for index, (_, _, y0, y1) in enumerate(spans):
+            if y0 - _BATCH_GAP / 2 <= middle <= y1 + _BATCH_GAP / 2:
+                buckets[index].append((left, text, confidence, max(1, len(text.replace(" ", "")))))
+                break
+
+    results: dict = {}
+    for index, (key, box, _, _) in enumerate(spans):
+        tokens = sorted(buckets[index], key=lambda item: item[0])
+        if not tokens:
+            results[key] = None
+            continue
+        combined = _join_ocr_tokens([token[1] for token in tokens])
+        weight = sum(token[3] for token in tokens)
+        confidence = sum(token[2] * token[3] for token in tokens) / weight if weight else 0.0
+        results[key] = _OcrRegion(text=combined, box=box, confidence=round(confidence, 4)) if combined else None
+    return results
+
+
 def _resolve_label(global_text: str, global_confidence: float, local: _OcrRegion | None) -> tuple[str, float]:
     """Cross-check the whole-image reading against the upscaled local crop."""
     local_text = local.text if local else ""
@@ -1109,24 +1189,43 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     )
     low_ocr_labels: list[str] = []
     unread_labels: list[str] = []
-    # A confident whole-image reading is kept as-is; only weak ones run the local
-    # crop pass, which itself escalates to extra PSMs only when still weak.
+    # A confident whole-image reading is kept as-is; the rest are read together in
+    # one batched (montage) Tesseract call instead of one call per ROI.
     global_trust = 0.78
-    ocr_budget = _OcrBudget()
-    roi_cache: dict = {}
-    for state, box, regions in zip(states, boxes, state_ocr):
-        global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
+    state_global = [_combine_ocr_regions(regions) if regions else ("", 0.0) for regions in state_ocr]
+    transition_global = [_combine_ocr_regions(regions) if regions else ("", 0.0) for regions in transition_ocr]
+
+    batched: dict = {}
+    if not ocr_failed and time.perf_counter() < ocr_deadline:
+        weak_rois: list[tuple[object, tuple[int, int, int, int]]] = []
+        for index, (box, (_, confidence)) in enumerate(zip(boxes, state_global)):
+            if confidence < global_trust:
+                weak_rois.append((("s", index), box))
+        for index, (detected, (_, confidence)) in enumerate(zip(detected_transitions, transition_global)):
+            if confidence < global_trust:
+                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3])))
+        if weak_rois:
+            stage = time.perf_counter()
+            batched = _read_labels_batched(processed.ocr_gray, weak_rois)
+            retry = [
+                (key, box) for key, box in weak_rois
+                if (batched.get(key) is None or batched[key].confidence < 0.6)
+            ]
+            if retry and time.perf_counter() < ocr_deadline:
+                for key, region in _read_labels_batched(processed.ocr_gray, retry, binarized=True).items():
+                    if region is not None and (batched.get(key) is None or region.confidence > batched[key].confidence):
+                        batched[key] = region
+            _mark("local_ocr_batch", stage)
+
+    for index, (state, regions) in enumerate(zip(states, state_ocr)):
+        global_text, global_confidence = state_global[index]
         if ocr_failed or global_confidence >= global_trust:
             text, confidence = global_text, global_confidence
-        elif time.perf_counter() >= ocr_deadline:
+        elif not batched and time.perf_counter() >= ocr_deadline:
             ocr_truncated = True
             text, confidence = global_text, global_confidence
         else:
-            local = _read_label_from_roi(
-                processed.ocr_gray, box, inner_margin_ratio=0.16, budget=ocr_budget, cache=roi_cache,
-                fast_only=global_confidence >= 0.6,
-            )
-            text, confidence = _resolve_label(global_text, global_confidence, local)
+            text, confidence = _resolve_label(global_text, global_confidence, batched.get(("s", index)))
         if not text:
             state.confidence = min(state.confidence, 0.58)
             unread_labels.append(state.name)
@@ -1137,19 +1236,15 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
         else:
             state.confidence = min(state.confidence, round(confidence, 2))
             low_ocr_labels.append(f"{state.name} ({confidence:.0%})")
-    for transition, detected, regions in zip(transitions, detected_transitions, transition_ocr):
-        global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
+    for index, transition in enumerate(transitions):
+        global_text, global_confidence = transition_global[index]
         if ocr_failed or global_confidence >= global_trust:
             text, confidence = global_text, global_confidence
-        elif time.perf_counter() >= ocr_deadline:
+        elif not batched and time.perf_counter() >= ocr_deadline:
             ocr_truncated = True
             text, confidence = global_text, global_confidence
         else:
-            local = _read_label_from_roi(
-                processed.ocr_gray, _transition_label_roi(detected[2], detected[3]),
-                inner_margin_ratio=0.0, budget=ocr_budget, cache=roi_cache,
-                fast_only=global_confidence >= 0.6,
-            )
+            local = batched.get(("t", index))
             if local is not None and _state_ocr_owner(local, boxes) is not None:
                 local = None  # midpoint crop drifted into a state; ignore it
             text, confidence = _resolve_label(global_text, global_confidence, local)
