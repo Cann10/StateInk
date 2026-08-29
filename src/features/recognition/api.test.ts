@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { describeRecognitionError, parseRecognitionResponse } from './api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describeRecognitionError, parseRecognitionResponse, refineRecognition } from './api';
 
 const validResult = { states: [], transitions: [], warnings: [], processing_ms: 12 };
 
@@ -47,5 +47,32 @@ describe('parseRecognitionResponse', () => {
   it('rejects successful JSON from the wrong endpoint', async () => {
     const response = new Response(JSON.stringify({ status: 'ok' }), { headers: { 'content-type': 'application/json' } });
     await expect(parseRecognitionResponse(response)).rejects.toThrow('応答形式が正しくありません');
+  });
+});
+
+describe('refineRecognition', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const file = new File(['x'], 'd.png', { type: 'image/png' });
+  const targets = [{ id: 's2', kind: 'state' as const, x: 1, y: 2, width: 3, height: 4 }];
+
+  it('posts the targets and returns the parsed reading list', async () => {
+    let sentBody: FormData | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      sentBody = init.body as FormData;
+      return new Response(JSON.stringify({ items: [{ id: 's2', text: '入金済み', confidence: 0.8 }], processing_ms: 38000, timed_out: false, attempted: 1 }), { headers: { 'content-type': 'application/json' } });
+    }));
+    const result = await refineRecognition(file, targets, new AbortController().signal);
+    expect(result.items).toEqual([{ id: 's2', text: '入金済み', confidence: 0.8 }]);
+    expect(JSON.parse(String(sentBody?.get('regions')))).toEqual({ regions: targets });
+  });
+
+  it('surfaces the backend error detail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: '高精度の再読取中に問題が発生しました。' }), { status: 500, headers: { 'content-type': 'application/json' } })));
+    await expect(refineRecognition(file, targets, new AbortController().signal)).rejects.toThrow('問題が発生しました');
+  });
+
+  it('rejects a non-JSON response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>502</html>', { status: 502, headers: { 'content-type': 'text/html' } })));
+    await expect(refineRecognition(file, targets, new AbortController().signal)).rejects.toThrow('JSONを返しませんでした');
   });
 });
