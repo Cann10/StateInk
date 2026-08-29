@@ -11,6 +11,7 @@ import { vendingMachine } from './samples/vendingMachine';
 import { RecognitionPanel } from './features/recognition/RecognitionPanel';
 import { downloadPng, downloadText, machineToJson, machineToSvg } from './features/export/exportMachine';
 import { loadSavedWorkspace, saveWorkspace } from './features/workspace/storage';
+import { scrollIntoViewGently } from './a11y';
 
 const samples = { valid: vendingMachine, broken: brokenVendingMachine } as const;
 const initialErrorText = { 'missing-initial': '開始状態がないため実行できません。', 'multiple-initial': '開始状態が複数あるため実行できません。' } as const;
@@ -40,7 +41,7 @@ export function App() {
     const replay = replayEvents(machine, events);
     setSimulation(replay.simulation);
     setReplayedPath(replay);
-    simulatorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    scrollIntoViewGently(simulatorRef.current);
   };
   const issues = useMemo(() => analyze(machine), [machine]);
   const shownIssues = visibleIssues(issues);
@@ -72,6 +73,10 @@ export function App() {
     setSampleKey(key); setMachine(next); setSimulation(createSimulation(next)); setReplayedPath(undefined); setScreen('workspace');
     setSelectedStateId(undefined); setSelectedTransitionId(undefined);
     setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' });
+  };
+
+  const safeDownload = (run: () => void, failureMessage: string) => {
+    try { run(); setFileError(undefined); } catch { setFileError(failureMessage); }
   };
 
   const importJson = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -107,7 +112,7 @@ export function App() {
         return <span key={step.n} className="flow-step" data-state={isCurrent ? 'current' : 'idle'} aria-current={isCurrent ? 'step' : undefined}><b>{step.n}</b>{step.label}</span>;
       })}
     </nav>
-    <section className="file-toolbar" aria-label="ファイル操作"><div><button onClick={() => openWorkspace({ states: [], transitions: [] })}><FilePenLine size={15}/>新規作成</button><label className="toolbar-button"><Upload size={15}/>JSON読込<input type="file" accept="application/json,.json" onChange={importJson}/></label></div><div className="export-actions"><span>Export ・ 書き出し</span><button onClick={() => downloadText('stateink-machine.json', machineToJson(machine), 'application/json')}><FileJson size={15}/>JSON</button><button onClick={() => downloadText('stateink-diagram.svg', machineToSvg(machine), 'image/svg+xml')}><Download size={15}/>SVG</button><button onClick={() => downloadPng(machine).catch(() => setFileError('PNGを作成できませんでした。'))}><Download size={15}/>PNG</button></div></section>
+    <section className="file-toolbar" aria-label="ファイル操作"><div><button onClick={() => openWorkspace({ states: [], transitions: [] })}><FilePenLine size={15}/>新規作成</button><label className="toolbar-button"><Upload size={15}/>JSON読込<input type="file" accept="application/json,.json" onChange={importJson}/></label></div><div className="export-actions"><span>Export ・ 書き出し</span><button onClick={() => safeDownload(() => downloadText('stateink-machine.json', machineToJson(machine), 'application/json'), 'JSONを書き出せませんでした。')}><FileJson size={15}/>JSON</button><button onClick={() => safeDownload(() => downloadText('stateink-diagram.svg', machineToSvg(machine), 'image/svg+xml'), 'SVGを書き出せませんでした。')}><Download size={15}/>SVG</button><button onClick={() => downloadPng(machine).catch(() => setFileError('PNGを作成できませんでした。'))}><Download size={15}/>PNG</button></div></section>
     {fileError && <p className="file-error" role="alert">{fileError}</p>}
     {showRecognition && <div className="recognition-wrap"><RecognitionPanel onClose={() => setShowRecognition(false)} onConfirm={(next) => { setMachine(next); setSimulation(createSimulation(next)); setReplayedPath(undefined); setShowRecognition(false); setSelectedStateId(undefined); setSelectedTransitionId(undefined); setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' }); }}/></div>}
     <section className="intro"><p className="eyebrow">編集 → 実行 → 自動チェック</p><h2>{sampleKey === 'broken' ? 'まず問題を再現し、refund 遷移を追加して直してみましょう。' : '図を直すと、チェック結果もすぐに変わります。'}</h2><p>{sampleKey === 'broken' ? 'coin → select → sold_out を押すと問題状態へ進みます。売り切れから待機への refund を追加すると警告が消えます。' : '状態を選んで編集するか、下のフォームで遷移を追加してください。編集するとシミュレーターは開始地点へ戻ります。'}</p></section>

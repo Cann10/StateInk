@@ -1,5 +1,17 @@
 import type { RecognitionResult } from './types';
 
+/** Turn a fetch/parse failure into a short Japanese message the reviewer can act on. */
+export function describeRecognitionError(reason: unknown, timeoutMs: number): string {
+  if (reason instanceof DOMException && reason.name === 'AbortError') {
+    return `認識サーバーが${Math.round(timeoutMs / 1000)}秒以内に応答しませんでした。通信環境を確認して再試行してください。`;
+  }
+  if (reason instanceof TypeError) {
+    return '認識サーバーに接続できませんでした。バックエンドが起動しているか、通信環境を確認してください。';
+  }
+  if (reason instanceof Error && reason.message) return reason.message;
+  return '画像を読み取れませんでした。別の画像で試してください。';
+}
+
 function isRecognitionResult(value: unknown): value is RecognitionResult {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<RecognitionResult>;

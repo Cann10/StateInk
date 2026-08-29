@@ -347,6 +347,19 @@ aside { display: grid; gap: 20px; }
 .confirm-hint { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--color-soft-border); border-radius: var(--radius-sm); background: var(--color-soft); color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
 .confirm-hint b { color: var(--color-primary); }
 
+.review-nothing { border: 1px solid var(--color-warning-border); background: var(--color-warning-bg); color: var(--color-warning); margin-top: 14px; }
+.review-nothing strong { display: block; font-size: 14px; margin-bottom: 4px; }
+.review-nothing p { color: var(--color-warning) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .app-error { display: grid; place-items: center; min-height: 100vh; padding: 32px; background: var(--color-background); }
 .app-error > div { max-width: 440px; text-align: center; }
 .app-error h1 { font: 700 22px Georgia, serif; margin: 0 0 12px; }
