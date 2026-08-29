@@ -128,3 +128,50 @@ def test_printed_state_and_event_labels_are_read() -> None:
     assert not any(name.startswith("State ") for name in names), names
     if events:
         assert any("coin" in event.lower() for event in events), events
+
+
+def _draw_busy_diagram(font_path: str) -> bytes:
+    """5 states + 4 labelled transitions, small text, slight rotation -- forces
+    the local label-OCR path for most elements (worst case for latency)."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = 1180, 520
+    image = np.full((height, width, 3), 255, np.uint8)
+    centres = [(120, 130), (430, 130), (740, 130), (1050, 130), (585, 380)]
+    for cx, cy in centres:
+        cv2.ellipse(image, (cx, cy), (96, 58), 0, 0, 360, (0, 0, 0), 3)
+    arrows = [(0, 1), (1, 2), (2, 3), (3, 4)]
+    for a, b in arrows:
+        (x1, y1), (x2, y2) = centres[a], centres[b]
+        cv2.arrowedLine(image, (x1 + 96, y1), (x2 - 96, y2), (0, 0, 0), 3, tipLength=0.1)
+
+    pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil)
+    label_font = ImageFont.truetype(font_path, 22)
+    event_font = ImageFont.truetype(font_path, 18)
+    for (cx, cy), name in zip(centres, ["WAITING", "PENDING", "PAID", "DISPENSE", "REFUND"]):
+        draw.text((cx - 46, cy - 12), name, font=label_font, fill=(0, 0, 0))
+    for (a, b), name in zip(arrows, ["coin", "confirm", "select", "cancel"]):
+        (x1, y1), (x2, y2) = centres[a], centres[b]
+        draw.text(((x1 + x2) // 2 - 24, (y1 + y2) // 2 - 26), name, font=event_font, fill=(0, 0, 0))
+    rendered = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+    rotation = cv2.getRotationMatrix2D((width / 2, height / 2), 2.0, 1.0)
+    rotated = cv2.warpAffine(rendered, rotation, (width, height), borderValue=(255, 255, 255))
+    ok, buffer = cv2.imencode(".png", rotated)
+    assert ok
+    return buffer.tobytes()
+
+
+def test_measure_busy_latency() -> None:
+    font_path = next((path for path in _LATIN_FONT_CANDIDATES if os.path.exists(path)), None)
+    if font_path is None:
+        pytest.skip("no font")
+    from app.recognizer import recognize_image
+
+    result = recognize_image(_draw_busy_diagram(font_path))
+    names = [s.name for s in result.states]
+    events = [t.event for t in result.transitions]
+    assert result.processing_ms < 1, (
+        f"[MEASURE-busy] processing_ms={result.processing_ms} states={len(result.states)} "
+        f"names={names} events={events}"
+    )
