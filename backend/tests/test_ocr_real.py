@@ -120,6 +120,7 @@ def test_printed_state_and_event_labels_are_read() -> None:
     names = [state.name for state in result.states]
     events = [edge.event for edge in result.transitions]
     print("recognized states:", names, "events:", events)
+    assert result.processing_ms < 1, f"[MEASURE] processing_ms={result.processing_ms}"  # temp: force-print timing
 
     assert len(result.states) == 2, names
     joined = " ".join(name.upper() for name in names)
