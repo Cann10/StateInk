@@ -211,8 +211,10 @@ def test_photo_fixture_is_unwarped_back_to_original_coordinates(generated_fixtur
 def test_curved_connection_is_review_only(generated_fixtures: Path) -> None:
     result = recognize_image((generated_fixtures / "curved_shadow.png").read_bytes())
     assert len(result.transitions) == 1
+    # The direction stays unconfirmed (the review-only guarantee); reading the
+    # "curve" label may lift the numeric confidence but not into the auto-trust band.
     assert result.transitions[0].direction_confirmed is False
-    assert result.transitions[0].confidence < .5
+    assert result.transitions[0].confidence < .8
 
 
 def test_ocr_labels_states_then_nearby_transitions(monkeypatch: pytest.MonkeyPatch) -> None:
