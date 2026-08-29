@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyze } from './analyzer';
 import { shortestEventPath } from './counterexample';
 import { availableEvents, createSimulation, replayEvents, reset, transition } from './simulator';
-import { addState, addTransition, removeState, removeTransition, updateState } from './editor';
+import { addState, addTransition, connectedTransitionCount, removeState, removeTransition, updateState } from './editor';
 import type { StateMachine } from './types';
 import { vendingMachine } from '../samples/vendingMachine';
 
@@ -46,4 +46,5 @@ describe('editor', () => {
   it('adds, renames, and deletes a state with connected transitions', () => { const added = addState(vendingMachine, '修理中'); const id = added.states.at(-1)?.id ?? ''; expect(added.states.at(-1)?.name).toBe('修理中'); const renamed = updateState(added, id, { name: '点検中' }); expect(renamed.states.at(-1)?.name).toBe('点検中'); const linked = addTransition(renamed, 'idle', id, 'inspect'); const removed = removeState(linked, id); expect(removed.states.some((item) => item.id === id)).toBe(false); expect(removed.transitions.some((item) => item.to === id)).toBe(false); });
   it('adds and removes a transition', () => { const added = addTransition(vendingMachine, 'idle', 'paid', 'card'); const created = added.transitions.at(-1); expect(created?.event).toBe('card'); expect(removeTransition(added, created?.id ?? '').transitions).toHaveLength(vendingMachine.transitions.length); });
   it('immediately analyzes an edited machine', () => { const fixed = addTransition(machine([state('a', true), state('b')], [edge('go', 'a', 'b')]), 'b', 'a', 'back'); expect(analyze(fixed)).toEqual([]); });
+  it('counts the transitions a state deletion would also remove', () => { const value = machine([state('a', true), state('b'), state('c')], [edge('ab', 'a', 'b'), edge('bc', 'b', 'c'), edge('cb', 'c', 'b')]); expect(connectedTransitionCount(value, 'b')).toBe(3); expect(connectedTransitionCount(value, 'a')).toBe(1); expect(connectedTransitionCount(value, 'missing')).toBe(0); });
 });

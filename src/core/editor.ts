@@ -10,6 +10,11 @@ export function removeState(machine: StateMachine, stateId: string): StateMachin
   return { states: machine.states.filter((state) => state.id !== stateId), transitions: machine.transitions.filter((edge) => edge.from !== stateId && edge.to !== stateId) };
 }
 
+/** How many transitions would also disappear if this state were removed. */
+export function connectedTransitionCount(machine: StateMachine, stateId: string): number {
+  return machine.transitions.filter((edge) => edge.from === stateId || edge.to === stateId).length;
+}
+
 export function updateState(machine: StateMachine, stateId: string, changes: Partial<Pick<StateMachine['states'][number], 'name' | 'position' | 'initial' | 'final'>>): StateMachine {
   return { ...machine, states: machine.states.map((state) => state.id === stateId ? { ...state, ...changes } : state) };
 }

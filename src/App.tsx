@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node, type NodeMouseHandler, type EdgeMouseHandler } from '@xyflow/react';
 import { AlertTriangle, CheckCircle2, CirclePlus, Download, FileJson, FilePenLine, Home, ImagePlus, Play, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { analyze } from './core/analyzer';
-import { addState, addTransition, removeState, removeTransition, setInitialState, updateState, updateTransitionEvent } from './core/editor';
+import { addState, addTransition, connectedTransitionCount, removeState, removeTransition, setInitialState, updateState, updateTransitionEvent } from './core/editor';
 import { availableEvents, createSimulation, replayEvents, reset, transition, type ReplayResult, type Simulation } from './core/simulator';
 import type { AnalysisIssue, StateMachine } from './core/types';
 import { isValidStateMachine } from './core/validate';
@@ -34,8 +34,25 @@ export function App() {
   const [transitionDraft, setTransitionDraft] = useState({ from: 'idle', to: 'idle', event: '' });
   const [showRecognition, setShowRecognition] = useState(false);
   const [fileError, setFileError] = useState<string>();
+  const [fileNotice, setFileNotice] = useState<string | undefined>(() => (savedWorkspace ? '前回の続きを復元しました。' : undefined));
   const [replayedPath, setReplayedPath] = useState<ReplayResult>();
   const simulatorRef = useRef<HTMLElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  const flashNotice = (message: string) => {
+    setFileError(undefined);
+    setFileNotice(message);
+  };
+
+  const machineIsUserWork = machine !== vendingMachine && machine !== brokenVendingMachine;
+  const confirmDiscard = () => !machineIsUserWork
+    || window.confirm('編集中の図が失われます。続けますか？（先に Export で保存できます）');
+
+  useEffect(() => {
+    if (!fileNotice) return;
+    const timer = window.setTimeout(() => setFileNotice(undefined), 4000);
+    return () => window.clearTimeout(timer);
+  }, [fileNotice]);
 
   const replayCounterexample = (events: string[]) => {
     const replay = replayEvents(machine, events);
@@ -66,8 +83,8 @@ export function App() {
   const replayedTransitionIds = new Set(replayedPath?.transitionIds ?? []);
   const nodes: Node[] = machine.states.map((state) => ({ id: state.id, position: state.position, data: { label: <div className="node-label"><span>{state.initial ? '▶ ' : ''}{state.name}{state.final ? ' ◎' : ''}</span>{state.initial && <small>開始</small>}{state.final && <small>正常終了</small>}{problemStates.has(state.id) && <small className="problem-label">⚠ 要確認</small>}</div> }, className: `${state.id === current?.id ? 'current-node' : ''} ${problemStates.has(state.id) ? 'problem-node' : ''} ${state.id === selectedStateId ? 'selected-node' : ''} ${replayedStateIds.has(state.id) ? 'replayed-node' : ''}` }));
   const edges: Edge[] = machine.transitions.map((edge) => ({ id: edge.id, source: edge.from, target: edge.to, label: edge.event, animated: edge.id === simulation.lastTransitionId || replayedTransitionIds.has(edge.id), className: `${edge.id === simulation.lastTransitionId ? 'active-edge' : ''} ${edge.id === selectedTransitionId ? 'selected-edge' : ''} ${replayedTransitionIds.has(edge.id) ? 'replayed-edge' : ''}`, markerEnd: { type: MarkerType.ArrowClosed } }));
-  const selectNode: NodeMouseHandler = (_, node) => { setSelectedStateId(node.id); setSelectedTransitionId(undefined); };
-  const selectEdge: EdgeMouseHandler = (_, edge) => { setSelectedTransitionId(edge.id); setSelectedStateId(undefined); };
+  const selectNode: NodeMouseHandler = (_, node) => { setSelectedStateId(node.id); setSelectedTransitionId(undefined); scrollIntoViewGently(editorRef.current); };
+  const selectEdge: EdgeMouseHandler = (_, edge) => { setSelectedTransitionId(edge.id); setSelectedStateId(undefined); scrollIntoViewGently(editorRef.current); };
 
   const openWorkspace = (next: StateMachine, key: keyof typeof samples = 'valid') => {
     setSampleKey(key); setMachine(next); setSimulation(createSimulation(next)); setReplayedPath(undefined); setScreen('workspace');
@@ -75,19 +92,20 @@ export function App() {
     setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' });
   };
 
-  const safeDownload = (run: () => void, failureMessage: string) => {
-    try { run(); setFileError(undefined); } catch { setFileError(failureMessage); }
+  const safeDownload = (run: () => void, failureMessage: string, successMessage: string) => {
+    try { run(); flashNotice(successMessage); } catch { setFileError(failureMessage); }
   };
 
   const importJson = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (!confirmDiscard()) return;
     try {
       const candidate: unknown = JSON.parse(await file.text());
       if (!isValidStateMachine(candidate)) throw new Error();
       openWorkspace(candidate);
-      setFileError(undefined);
+      flashNotice('JSONを読み込みました。');
     } catch {
       setFileError('StateInkのJSONファイルを読み込めませんでした。');
     }
@@ -105,22 +123,23 @@ export function App() {
   </main>;
 
   return <main>
-    <header><div className="brand"><button className="home-link" aria-label="ホームへ戻る" onClick={() => setScreen('home')}><Home size={18}/></button><span className="brand-mark">S</span><div><h1>StateInk</h1><p>描いた設計を、動かして確かめる。</p></div></div><div className="header-actions"><button onClick={() => setShowRecognition(true)}><ImagePlus size={16}/>紙から読み取る</button><label>サンプル<select aria-label="サンプル" value={sampleKey} onChange={(event) => chooseSample(event.target.value as keyof typeof samples)}><option value="valid">正常な自動販売機</option><option value="broken">問題のある自動販売機</option></select></label></div></header>
+    <header><div className="brand"><button className="home-link" aria-label="ホームへ戻る" onClick={() => setScreen('home')}><Home size={18}/></button><span className="brand-mark">S</span><div><h1>StateInk</h1><p>描いた設計を、動かして確かめる。</p></div></div><div className="header-actions"><button onClick={() => setShowRecognition(true)}><ImagePlus size={16}/>紙から読み取る</button><label>サンプル<select aria-label="サンプル" value={sampleKey} onChange={(event) => { if (confirmDiscard()) chooseSample(event.target.value as keyof typeof samples); }}><option value="valid">正常な自動販売機</option><option value="broken">問題のある自動販売機</option></select></label></div></header>
     <nav className="flow-steps" aria-label="このツールの進めかた">
       {[{ n: 1, label: '読み込む' }, { n: 2, label: '確認する' }, { n: 3, label: '編集する' }, { n: 4, label: '動かす' }].map((step) => {
         const isCurrent = showRecognition ? step.n <= 2 : step.n >= 3;
         return <span key={step.n} className="flow-step" data-state={isCurrent ? 'current' : 'idle'} aria-current={isCurrent ? 'step' : undefined}><b>{step.n}</b>{step.label}</span>;
       })}
     </nav>
-    <section className="file-toolbar" aria-label="ファイル操作"><div><button onClick={() => openWorkspace({ states: [], transitions: [] })}><FilePenLine size={15}/>新規作成</button><label className="toolbar-button"><Upload size={15}/>JSON読込<input type="file" accept="application/json,.json" onChange={importJson}/></label></div><div className="export-actions"><span>Export ・ 書き出し</span><button onClick={() => safeDownload(() => downloadText('stateink-machine.json', machineToJson(machine), 'application/json'), 'JSONを書き出せませんでした。')}><FileJson size={15}/>JSON</button><button onClick={() => safeDownload(() => downloadText('stateink-diagram.svg', machineToSvg(machine), 'image/svg+xml'), 'SVGを書き出せませんでした。')}><Download size={15}/>SVG</button><button onClick={() => downloadPng(machine).catch(() => setFileError('PNGを作成できませんでした。'))}><Download size={15}/>PNG</button></div></section>
+    <section className="file-toolbar" aria-label="ファイル操作"><div><button onClick={() => { if (confirmDiscard()) openWorkspace({ states: [], transitions: [] }); }}><FilePenLine size={15}/>新規作成</button><label className="toolbar-button"><Upload size={15}/>JSON読込<input type="file" accept="application/json,.json" onChange={importJson}/></label></div><div className="export-actions"><span>Export ・ 書き出し</span><button onClick={() => safeDownload(() => downloadText('stateink-machine.json', machineToJson(machine), 'application/json'), 'JSONを書き出せませんでした。', 'JSONを書き出しました。')}><FileJson size={15}/>JSON</button><button onClick={() => safeDownload(() => downloadText('stateink-diagram.svg', machineToSvg(machine), 'image/svg+xml'), 'SVGを書き出せませんでした。', 'SVGを書き出しました。')}><Download size={15}/>SVG</button><button onClick={() => downloadPng(machine).then(() => flashNotice('PNGを書き出しました。')).catch(() => setFileError('PNGを作成できませんでした。'))}><Download size={15}/>PNG</button></div></section>
     {fileError && <p className="file-error" role="alert">{fileError}</p>}
-    {showRecognition && <div className="recognition-wrap"><RecognitionPanel onClose={() => setShowRecognition(false)} onConfirm={(next) => { setMachine(next); setSimulation(createSimulation(next)); setReplayedPath(undefined); setShowRecognition(false); setSelectedStateId(undefined); setSelectedTransitionId(undefined); setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' }); }}/></div>}
+    {fileNotice && <p className="file-notice" role="status">{fileNotice}</p>}
+    {showRecognition && <div className="recognition-wrap"><RecognitionPanel onClose={() => setShowRecognition(false)} onConfirm={(next) => { setMachine(next); setSimulation(createSimulation(next)); setReplayedPath(undefined); setShowRecognition(false); setSelectedStateId(undefined); setSelectedTransitionId(undefined); setTransitionDraft({ from: next.states[0]?.id ?? '', to: next.states[0]?.id ?? '', event: '' }); flashNotice('読み取り結果を Editor に取り込みました。'); }}/></div>}
     <section className="intro"><p className="eyebrow">編集 → 実行 → 自動チェック</p><h2>{sampleKey === 'broken' ? 'まず問題を再現し、refund 遷移を追加して直してみましょう。' : '図を直すと、チェック結果もすぐに変わります。'}</h2><p>{sampleKey === 'broken' ? 'coin → select → sold_out を押すと問題状態へ進みます。売り切れから待機への refund を追加すると警告が消えます。' : '状態を選んで編集するか、下のフォームで遷移を追加してください。編集するとシミュレーターは開始地点へ戻ります。'}</p></section>
     <div className="workspace">
       <section className="card diagram"><div className="card-title"><div><span>01 / EDIT<span className="eyebrow-en"> DIAGRAM</span> ・ 図を編集</span><h2>状態遷移図</h2><p className="card-hint">状態（丸）と矢印を足したり直したりします。図の中の状態・矢印をクリックすると、下で名前を編集できます。</p></div><button className="primary small" onClick={() => { const next = addState(machine, '新しい状態', { x: 100 + machine.states.length * 25, y: 300 }); applyEdit(() => next); setSelectedStateId(next.states.at(-1)?.id); }}><CirclePlus size={16}/> 状態を追加</button></div>
         <div className="flow"><ReactFlow key={sampleKey} nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.22 }} minZoom={0.4} maxZoom={1.5} nodesDraggable nodesConnectable={false} onNodeClick={selectNode} onEdgeClick={selectEdge} onNodeDragStop={(_, node) => applyEdit((value) => updateState(value, node.id, { position: node.position }))}><Background gap={20}/><Controls showInteractive={false}/></ReactFlow></div>
-        <div className="editor" aria-label="図の編集">
-          {selectedState ? <div className="edit-block"><div className="edit-heading"><strong>状態「{selectedState.name}」を編集</strong><button className="danger-link" onClick={() => { applyEdit((value) => removeState(value, selectedState.id)); setSelectedStateId(undefined); }}><Trash2 size={14}/>削除</button></div><label>状態名<input value={selectedState.name} onChange={(event) => applyEdit((value) => updateState(value, selectedState.id, { name: event.target.value }))}/></label><div className="checks"><label><input type="radio" name="initial" checked={Boolean(selectedState.initial)} onChange={() => applyEdit((value) => setInitialState(value, selectedState.id))}/> 開始状態にする</label><label><input type="checkbox" checked={Boolean(selectedState.final)} onChange={(event) => applyEdit((value) => updateState(value, selectedState.id, { final: event.target.checked }))}/> 正常終了にする</label></div></div> : selectedTransition ? <div className="edit-block"><div className="edit-heading"><strong>遷移を編集</strong><button className="danger-link" onClick={() => { applyEdit((value) => removeTransition(value, selectedTransition.id)); setSelectedTransitionId(undefined); }}><Trash2 size={14}/>削除</button></div><label>イベント名<input value={selectedTransition.event} onChange={(event) => applyEdit((value) => updateTransitionEvent(value, selectedTransition.id, event.target.value))}/></label></div> : <p className="editor-hint">{machine.states.length === 0 ? 'まだ状態がありません。右上の「状態を追加」から始めましょう。' : '図の状態または矢印を選ぶと、名前や設定を編集できます。'}</p>}
+        <div className="editor" aria-label="図の編集" ref={editorRef}>
+          {selectedState ? <div className="edit-block"><div className="edit-heading"><strong>状態「{selectedState.name}」を編集</strong><button className="danger-link" onClick={() => { const linked = connectedTransitionCount(machine, selectedState.id); if (linked > 0 && !window.confirm(`「${selectedState.name}」と、つながっている遷移 ${linked} 件も削除します。よろしいですか？`)) return; applyEdit((value) => removeState(value, selectedState.id)); setSelectedStateId(undefined); }}><Trash2 size={14}/>削除</button></div><label>状態名<input value={selectedState.name} onChange={(event) => applyEdit((value) => updateState(value, selectedState.id, { name: event.target.value }))}/></label><div className="checks"><label><input type="radio" name="initial" checked={Boolean(selectedState.initial)} onChange={() => applyEdit((value) => setInitialState(value, selectedState.id))}/> 開始状態にする</label><label><input type="checkbox" checked={Boolean(selectedState.final)} onChange={(event) => applyEdit((value) => updateState(value, selectedState.id, { final: event.target.checked }))}/> 正常終了にする</label></div></div> : selectedTransition ? <div className="edit-block"><div className="edit-heading"><strong>遷移を編集</strong><button className="danger-link" onClick={() => { applyEdit((value) => removeTransition(value, selectedTransition.id)); setSelectedTransitionId(undefined); }}><Trash2 size={14}/>削除</button></div><label>イベント名<input value={selectedTransition.event} onChange={(event) => applyEdit((value) => updateTransitionEvent(value, selectedTransition.id, event.target.value))}/></label></div> : <p className="editor-hint">{machine.states.length === 0 ? 'まだ状態がありません。右上の「状態を追加」から始めましょう。' : '図の状態または矢印を選ぶと、名前や設定を編集できます。'}</p>}
           <form className="transition-form" onSubmit={(event) => { event.preventDefault(); const next = addTransition(machine, transitionDraft.from, transitionDraft.to, transitionDraft.event); if (next !== machine) { applyEdit(() => next); setTransitionDraft((draft) => ({ ...draft, event: '' })); } }}><strong>遷移を追加</strong><label>移動元<select aria-label="遷移の移動元" value={transitionDraft.from} onChange={(event) => setTransitionDraft({ ...transitionDraft, from: event.target.value })}>{machine.states.map((state) => <option key={state.id} value={state.id}>{state.name}</option>)}</select></label><span>→</span><label>移動先<select aria-label="遷移の移動先" value={transitionDraft.to} onChange={(event) => setTransitionDraft({ ...transitionDraft, to: event.target.value })}>{machine.states.map((state) => <option key={state.id} value={state.id}>{state.name}</option>)}</select></label><label>イベント<input aria-label="遷移のイベント" placeholder="例: refund" value={transitionDraft.event} onChange={(event) => setTransitionDraft({ ...transitionDraft, event: event.target.value })}/></label><button className="primary" disabled={!transitionDraft.event.trim() || machine.states.length === 0}>追加</button></form>
         </div>
       </section>
