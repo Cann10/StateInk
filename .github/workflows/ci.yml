@@ -44,4 +44,6 @@ jobs:
           pip install pillow
       - name: Run backend tests
         working-directory: backend
-        run: pytest -q
+        # -rsp surfaces skip reasons and captured stdout from passed tests
+        # (e.g. the [REFINE COMPARISON] normal-vs-high-accuracy table).
+        run: pytest -q -rsp
