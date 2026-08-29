@@ -703,8 +703,7 @@ def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int
     return (middle_x - roi_width // 2, middle_y - roi_height // 2, roi_width, roi_height)
 
 
-_BATCH_ROW_HEIGHT = 96
-_BATCH_GAP = 26
+_BATCH_GAP = 34
 
 
 def _read_labels_batched(
@@ -715,15 +714,16 @@ def _read_labels_batched(
 ) -> dict:
     """OCR every weak ROI in ONE Tesseract call.
 
-    Each ROI's upscaled crop is stacked into a single tall montage; a `--psm 6`
-    pass reads it as a block of lines, and words are mapped back to their source
-    ROI by vertical position. This trades N subprocess spawns for one.
+    Each ROI's upscaled crop keeps its own resolution, is padded to a common
+    width and stacked into one tall montage; a `--psm 6` pass reads it as a block
+    of lines and words map back to their source ROI by vertical position. This
+    trades N subprocess spawns for one without distorting the glyphs.
     """
     prepared: list[tuple[object, tuple[int, int, int, int], np.ndarray]] = []
     for key, box in rois:
         roi = _prepare_label_roi(gray, box, inner_margin_ratio=0.0)
         if roi is not None:
-            prepared.append((key, box, roi))
+            prepared.append((key, box, _binarize_label_roi(roi) if binarized else roi))
     if not prepared:
         return {}
 
@@ -732,13 +732,12 @@ def _read_labels_batched(
     spans: list[tuple[object, tuple[int, int, int, int], int, int]] = []
     cursor = 0
     for key, box, roi in prepared:
-        cell = cv2.resize(roi, (width, _BATCH_ROW_HEIGHT), interpolation=cv2.INTER_AREA)
-        if binarized:
-            cell = _binarize_label_roi(cell)
+        pad_right = width - roi.shape[1]
+        cell = cv2.copyMakeBorder(roi, 0, 0, 0, pad_right, cv2.BORDER_CONSTANT, value=255) if pad_right else roi
         rows.append(cell)
         rows.append(np.full((_BATCH_GAP, width), 255, np.uint8))
-        spans.append((key, box, cursor, cursor + _BATCH_ROW_HEIGHT))
-        cursor += _BATCH_ROW_HEIGHT + _BATCH_GAP
+        spans.append((key, box, cursor, cursor + cell.shape[0]))
+        cursor += cell.shape[0] + _BATCH_GAP
     montage = cv2.copyMakeBorder(np.vstack(rows), 16, 16, 16, 16, cv2.BORDER_CONSTANT, value=255)
 
     try:
