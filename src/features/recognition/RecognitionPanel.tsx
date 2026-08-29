@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { AlertTriangle, Check, ImagePlus, LoaderCircle, Repeat2, Trash2, X } from 'lucide-react';
 import type { StateMachine } from '../../core/types';
 import { apiUrl } from '../../config';
@@ -33,6 +33,9 @@ export function RecognitionPanel({ onConfirm, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [lastFile, setLastFile] = useState<File>();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => { headingRef.current?.focus(); }, []);
 
   const runRecognition = async (file: File) => {
     setLastFile(file);
@@ -98,7 +101,7 @@ export function RecognitionPanel({ onConfirm, onClose }: Props) {
   };
 
   return <section className="recognition card" aria-label="画像読み取りレビュー">
-    <div className="card-title"><div><span>RECOGNITION / REVIEW ・ 読み取り確認</span><h2>写真から下書きを作る</h2><p className="card-hint">STEP 1〜2。読み取り結果は「下書き」です。ここで直してから Editor へ渡します。</p></div><button className="reset" onClick={onClose}><X size={16}/>閉じる</button></div>
+    <div className="card-title"><div><span>RECOGNITION / REVIEW ・ 読み取り確認</span><h2 ref={headingRef} tabIndex={-1}>写真から下書きを作る</h2><p className="card-hint">STEP 1〜2。読み取り結果は「下書き」です。ここで直してから Editor へ渡します。</p></div><button className="reset" onClick={onClose}><X size={16}/>閉じる</button></div>
     {!result && <div className="upload"><ImagePlus size={34}/><strong>状態遷移図の画像を選ぶ</strong><p>自動で完成させるのではなく、<b>編集できる下書き</b>を作ります。</p><ul className="upload-tips"><li>白い紙に濃い線で描いた図</li><li>丸・楕円・長方形の状態と、まっすぐな矢印</li><li>日本語・英語の状態名／イベント名</li></ul><label className="primary">画像を選ぶ<input aria-label="状態遷移図の画像" type="file" accept="image/png,image/jpeg,image/webp" onChange={recognize}/></label>{loading && <div className="loading-state" role="status"><LoaderCircle className="spin"/>下書きを作成しています… （10〜20秒ほどかかることがあります）</div>}{error && <div className="upload-error" role="alert"><strong>画像を読み取れませんでした</strong><p>{error}</p><p>時間をおくか、別の画像で試してください。</p>{lastFile && <button type="button" className="primary" disabled={loading} onClick={() => void runRecognition(lastFile)}>同じ画像で再試行</button>}</div>}</div>}
     {result && <div className="review"><div className="review-notice"><AlertTriangle/><div><strong>読み取り結果を確認してください</strong><p>元画像と色付き候補を見比べ、名前・接続・向きを確認してください（{result.processing_ms.toFixed(0)} ms）。</p>{reviewCandidates.length > 0 && <p className="review-priority"><b>まず {reviewCandidates.length} 件の候補を確認してください。</b>赤色（低確信度）と「方向未確認」を先に直すのがおすすめです。下の「次の要確認」で順番に移動できます。</p>}</div></div>{result.warnings.map((warning) => <p className="recognition-warning" key={warning}>{warning}</p>)}
       {result.states.length === 0 && result.transitions.length === 0 && <div className="review-empty review-nothing" role="status"><strong>この画像からは図の要素を読み取れませんでした</strong><p>照明やコントラストを上げて撮り直すか、下の「別の画像を選ぶ」で選び直してください。閉じて Editor で一から作ることもできます。</p></div>}

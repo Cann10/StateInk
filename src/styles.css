@@ -296,6 +296,9 @@ aside { display: grid; gap: 20px; }
 .toolbar-button input { display: none; }
 .export-actions > span { margin-right: 3px; color: var(--color-text-muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .file-error { max-width: 1344px; margin: 10px auto 0; padding: 10px 12px; border: 1px solid var(--color-error-border); border-radius: var(--radius-sm); background: var(--color-error-bg); color: var(--color-error); font-size: 12px; }
+.file-notice { max-width: 1344px; margin: 10px auto 0; padding: 10px 12px; border: 1px solid var(--color-soft-border); border-radius: var(--radius-sm); background: var(--color-soft); color: var(--color-primary); font-size: 12px; font-weight: 650; }
+.recognition h2:focus { outline: none; }
+.recognition h2:focus-visible { outline: 3px solid rgb(31 138 99 / 22%); outline-offset: 3px; }
 
 @media (max-width: 950px) {
   .home-layout { grid-template-columns: 1fr; gap: 36px; }
