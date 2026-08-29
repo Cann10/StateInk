@@ -128,3 +128,55 @@ def test_printed_state_and_event_labels_are_read() -> None:
     assert not any(name.startswith("State ") for name in names), names
     if events:
         assert any("coin" in event.lower() for event in events), events
+
+
+def _draw_three_ellipse_diagram(font_path: str) -> bytes:
+    """3 ellipse states (WAITING / PAID / DISPENSE) with 3 labelled transitions.
+    PAID contains glyphs with holes (P, A, D) that must NOT become a 4th state."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = 960, 420
+    image = np.full((height, width, 3), 255, np.uint8)
+    centres = [(150, 210), (480, 210), (810, 210)]
+    for cx, cy in centres:
+        cv2.ellipse(image, (cx, cy), (108, 62), 0, 0, 360, (0, 0, 0), 3)
+    cv2.arrowedLine(image, (258, 210), (372, 210), (0, 0, 0), 3, tipLength=0.14)
+    cv2.arrowedLine(image, (588, 210), (702, 210), (0, 0, 0), 3, tipLength=0.14)
+    cv2.arrowedLine(image, (810, 148), (810, 100), (0, 0, 0), 3, tipLength=0.3)  # self-ish stub for 'finish'
+
+    pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil)
+    label_font = ImageFont.truetype(font_path, 26)
+    event_font = ImageFont.truetype(font_path, 20)
+    for (cx, cy), name in zip(centres, ["WAITING", "PAID", "DISPENSE"]):
+        draw.text((cx - 52, cy - 14), name, font=label_font, fill=(0, 0, 0))
+    draw.text((286, 176), "coin", font=event_font, fill=(0, 0, 0))
+    draw.text((612, 176), "select", font=event_font, fill=(0, 0, 0))
+    draw.text((770, 70), "finish", font=event_font, fill=(0, 0, 0))
+    image = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+    rotation = cv2.getRotationMatrix2D((width / 2, height / 2), 2.0, 1.0)
+    rotated = cv2.warpAffine(image, rotation, (width, height), borderValue=(255, 255, 255))
+    ok, buffer = cv2.imencode(".png", rotated)
+    assert ok
+    return buffer.tobytes()
+
+
+def test_three_ellipse_states_reject_interior_glyph_contours() -> None:
+    font_path = next((p for p in _LATIN_FONT_CANDIDATES if os.path.exists(p)), None)
+    if font_path is None:
+        pytest.skip("no font")
+    from app.recognizer import recognize_image
+
+    result = recognize_image(_draw_three_ellipse_diagram(font_path))
+    names = [s.name for s in result.states]
+    events = [t.event for t in result.transitions]
+    print("[3ELLIPSE] states:", names, "events:", events, "ms:", result.processing_ms)
+
+    assert len(result.states) == 3, f"expected exactly 3 states, got {names}"
+    upper = " ".join(n.upper() for n in names)
+    for token in ("WAIT", "PAID", "DISP"):
+        assert token in upper, f"{token} not read: {names}"
+    assert not any(n.startswith("State ") for n in names), names
+    read_events = " ".join(e.lower() for e in events)
+    hits = sum(t in read_events for t in ("coin", "select", "finish"))
+    assert hits >= 2, f"events poorly read ({hits}/3): {events}"
