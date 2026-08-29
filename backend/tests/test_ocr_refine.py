@@ -18,7 +18,7 @@ pytesseract = pytest.importorskip("pytesseract")
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.refine import RefineItem, RefineRegion, RefineResult, refine_regions
+from app.refine import RefineItem, RefineRegion, RefineResult, _cleanliness, refine_regions
 
 _HAS_TESSERACT = shutil.which("tesseract") is not None
 
@@ -104,6 +104,19 @@ def test_refine_endpoint_rejects_non_image() -> None:
         data={"regions": '{"regions": []}'},
     )
     assert response.status_code == 415
+
+
+def test_cleanliness_rejects_lines_and_repeats_but_keeps_labels() -> None:
+    # arrow shaft / underline read as a dash or chouonpu run -> noise
+    assert _cleanliness("ーーーーーーーーーー 2") == 0.0
+    assert _cleanliness("----------") == 0.0
+    assert _cleanliness("|||||") == 0.0
+    assert _cleanliness("aaaaaa") == 0.0
+    # real labels survive
+    assert _cleanliness("CHARGING") > 0.6
+    assert _cleanliness("入金済み") > 0.6
+    assert _cleanliness("coin") > 0.6
+    assert _cleanliness("sold_out") > 0.5
 
 
 def test_refine_never_runs_structure_detection(monkeypatch: pytest.MonkeyPatch) -> None:

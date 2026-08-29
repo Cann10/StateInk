@@ -11,6 +11,7 @@ not produce a usable reading so the caller never accepts a forced misread.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 import time
 
@@ -57,14 +58,31 @@ class RefineResult:
     attempted: int
 
 
+# Glyphs Tesseract emits when it "reads" an arrow shaft, an underline or a box
+# edge -- long runs of these are structure, not a label.
+_LINE_LIKE = set("ーｰ-_—–―~=・.。,、|/\\lI1")
+
+
 def _cleanliness(text: str) -> float:
-    """0..1 heuristic: how much a reading looks like a real label vs OCR noise."""
+    """0..1 heuristic: how much a reading looks like a real label vs OCR noise
+    (an arrow shaft or box edge read as a row of dashes / chouonpu, etc.)."""
     stripped = text.replace(" ", "")
     if not stripped:
         return 0.0
-    alnum = sum(1 for character in stripped if character.isalnum())
-    ratio = alnum / len(stripped)
-    length_ok = 1.0 if 1 <= len(stripped) <= 24 else 0.55
+    alnum = [character for character in stripped if character.isalnum()]
+    if not alnum:
+        return 0.0
+    ratio = len(alnum) / len(stripped)
+    length_ok = 1.0 if 1 <= len(stripped) <= 24 else 0.4
+    # A long run dominated by one glyph, or by line-like glyphs, is a drawn line.
+    if len(stripped) >= 4:
+        top_share = Counter(stripped).most_common(1)[0][1] / len(stripped)
+        line_share = sum(character in _LINE_LIKE for character in stripped) / len(stripped)
+        if top_share >= 0.6 or line_share >= 0.6:
+            return 0.0
+    # Need at least two distinct alphanumerics once past a couple of characters.
+    if len(alnum) >= 3 and len(set(alnum)) < 2:
+        return 0.0
     return ratio * length_ok
 
 
@@ -117,10 +135,6 @@ def _candidate_crops(
     neighbourhood sweep for transition labels (event text usually sits above
     or beside the arrow)."""
     x, y, box_width, box_height = region.box
-    if region.kind == "transition":
-        pads = ((0.0, 0.0), (-0.30, -0.85), (-0.55, -0.35))
-    else:
-        pads = ((0.10, 0.24), (0.03, 0.12), (-0.06, -0.06))
     crops: list[np.ndarray] = []
 
     def _take(source: np.ndarray, raw_box: tuple[int, int, int, int]) -> None:
@@ -131,10 +145,26 @@ def _candidate_crops(
         if float(crop.std()) >= 5.0:
             crops.append(crop)
 
-    for margin_x, margin_y in pads:
-        delta_x = int(round(box_width * margin_x))
-        delta_y = int(round(box_height * margin_y))
-        box_o = (x + delta_x, y + delta_y, box_width - 2 * delta_x, box_height - 2 * delta_y)
+    if region.kind == "transition":
+        # The reported box spans endpoint-to-endpoint (mostly the shaft, which
+        # OCRs as a dash run). Read fixed-size bands offset off the shaft --
+        # event text usually sits just above the arrow, sometimes below.
+        centre_x, centre_y = x + box_width / 2, y + box_height / 2
+        label_w = int(min(320, max(140, box_width * 0.8)))
+        boxes_o = [
+            (centre_x - label_w / 2, centre_y - 56, label_w, 60),  # just above
+            (centre_x - label_w / 2, centre_y - 92, label_w, 80),  # higher / taller
+            (centre_x - label_w / 2, centre_y + 8, label_w, 52),   # just below
+        ]
+    else:
+        pads = ((0.10, 0.24), (0.03, 0.12), (-0.06, -0.06))
+        boxes_o = [
+            (x + round(box_width * mx), y + round(box_height * my),
+             box_width - 2 * round(box_width * mx), box_height - 2 * round(box_height * my))
+            for mx, my in pads
+        ]
+
+    for box_o in boxes_o:
         _take(gray_orig, box_o)
         corners = np.float32([
             [box_o[0], box_o[1]],
