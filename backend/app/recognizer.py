@@ -634,12 +634,18 @@ def _binarize_label_roi(roi: np.ndarray) -> np.ndarray:
     return otsu
 
 
-def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int, int, int]:
-    middle_x, middle_y = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
-    length = math.dist(p1, p2)
-    roi_width = int(max(96, min(260, length * 0.66)))
-    roi_height = 104
-    return (middle_x - roi_width // 2, middle_y - int(roi_height * 0.72), roi_width, roi_height)
+def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int], perp: float = 0.0) -> tuple[int, int, int, int]:
+    length = max(1.0, math.dist(p1, p2))
+    unit_x, unit_y = (p2[0] - p1[0]) / length, (p2[1] - p1[1]) / length
+    perp_x, perp_y = -unit_y, unit_x  # 90 deg to the shaft
+    centre_x = (p1[0] + p2[0]) / 2 + perp_x * perp * length
+    centre_y = (p1[1] + p2[1]) / 2 + perp_y * perp * length - length * 0.05
+    # The event label sits near the midpoint but *where* varies: above a roughly
+    # horizontal arrow, or off to one side of a diagonal one. The caller probes
+    # perp = 0 / +0.42 / -0.42; the flank windows are wide enough that a label
+    # anywhere in that band -- and its edge glyphs -- stay inside.
+    side = int(max(180, min(340, length * 0.72)) if perp else max(120, min(320, length * 0.62)))
+    return (int(centre_x - side / 2), int(centre_y - side / 2), side, side)
 
 
 _BATCH_GAP = 46
@@ -1159,7 +1165,11 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
                 weak_rois.append((("s", index), box, 0.09, 0.27))
         for index, (detected, (_, confidence)) in enumerate(zip(detected_transitions, transition_global)):
             if confidence < global_trust:
-                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3]), 0.0, 0.06))
+                # Probe the midpoint and both perpendicular sides -- diagonal
+                # arrows carry their label off to one flank, not just above.
+                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3], 0.0), 0.0, 0.06))
+                weak_rois.append((("tp", index), _transition_label_roi(detected[2], detected[3], 0.42), 0.0, 0.03))
+                weak_rois.append((("tn", index), _transition_label_roi(detected[2], detected[3], -0.42), 0.0, 0.03))
         if weak_rois:
             stage = time.perf_counter()
             batched = _read_labels_batched(processed.ocr_gray, weak_rois)
@@ -1200,9 +1210,13 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
             ocr_truncated = True
             text, confidence = global_text, global_confidence
         else:
-            local = batched.get(("t", index))
-            if local is not None and _state_ocr_owner(local, boxes) is not None:
-                local = None  # midpoint crop drifted into a state; ignore it
+            local = None
+            for probe_key in (("t", index), ("tp", index), ("tn", index)):
+                candidate = batched.get(probe_key)
+                if candidate is None or _state_ocr_owner(candidate, boxes) is not None:
+                    continue  # missing, or the crop drifted into a state box
+                if local is None or candidate.confidence > local.confidence:
+                    local = candidate
             text, confidence = _resolve_label(global_text, global_confidence, local)
         if not text:
             transition.confidence = min(transition.confidence, 0.58)
