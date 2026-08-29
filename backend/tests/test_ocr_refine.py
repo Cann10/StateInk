@@ -1,11 +1,10 @@
 """Tests for the on-demand high-accuracy re-read (`/api/recognize/refine`).
 
 The endpoint-contract tests run everywhere (Tesseract is mocked). The
-accuracy/timing comparison tests need the real engine and skip without it.
+accuracy/timing comparison test needs the real engine and skips without it.
 """
 from __future__ import annotations
 
-import io
 import os
 import shutil
 import time
@@ -137,31 +136,34 @@ def test_refine_never_runs_structure_detection(monkeypatch: pytest.MonkeyPatch) 
 
 
 # --------------------------------------------------------------------------- #
-# Real-OCR accuracy / timing comparison
+# Real-OCR: fast pass vs high-accuracy re-read
 # --------------------------------------------------------------------------- #
 
-def _draw_faint_diagram(font_path: str) -> bytes:
-    """Two rectangular states, event `submit`. The right-hand state name is
-    small and light grey -- the kind of label the fast pass tends to leave as
-    a placeholder or read with low confidence."""
+def _draw_hard_diagram(font_path: str) -> bytes:
+    """Two rectangular states + one event, drawn small, low-contrast, noisy and
+    rotated -- the kind of photo the fast montage pass reads poorly. The event
+    text sits well above the arrow so a tight label crop misses it."""
     from PIL import Image, ImageDraw, ImageFont
 
-    width, height = 820, 360
+    width, height = 900, 420
     image = np.full((height, width, 3), 255, np.uint8)
-    cv2.rectangle(image, (70, 130), (330, 250), (0, 0, 0), 3)
-    cv2.rectangle(image, (500, 130), (760, 250), (0, 0, 0), 3)
-    cv2.arrowedLine(image, (332, 190), (498, 190), (0, 0, 0), 3, tipLength=0.12)
+    cv2.rectangle(image, (80, 150), (330, 270), (40, 40, 40), 2)
+    cv2.rectangle(image, (560, 150), (810, 270), (40, 40, 40), 2)
+    cv2.arrowedLine(image, (332, 210), (558, 210), (40, 40, 40), 2, tipLength=0.10)
 
     pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil)
-    strong = ImageFont.truetype(font_path, 30)
-    faint = ImageFont.truetype(font_path, 15)
-    tiny = ImageFont.truetype(font_path, 14)
-    draw.text((120, 175), "READY", font=strong, fill=(0, 0, 0))
-    draw.text((560, 182), "REVIEWING", font=faint, fill=(150, 150, 150))
-    draw.text((372, 168), "submit", font=tiny, fill=(140, 140, 140))
-    rendered = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
-    rotation = cv2.getRotationMatrix2D((width / 2, height / 2), 2.0, 1.0)
+    small = ImageFont.truetype(font_path, 16)
+    tiny = ImageFont.truetype(font_path, 13)
+    draw.text((150, 200), "IDLE", font=small, fill=(120, 120, 120))
+    draw.text((588, 200), "CHARGING", font=small, fill=(150, 150, 150))
+    draw.text((402, 150), "plug", font=tiny, fill=(150, 150, 150))  # ~55px above the arrow
+
+    rendered = np.array(pil)
+    noise = np.random.default_rng(7).normal(0, 9, rendered.shape).astype(np.int16)
+    rendered = np.clip(rendered.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    rendered = cv2.cvtColor(rendered, cv2.COLOR_RGB2BGR)
+    rotation = cv2.getRotationMatrix2D((width / 2, height / 2), 3.5, 1.0)
     rotated = cv2.warpAffine(rendered, rotation, (width, height), borderValue=(255, 255, 255))
     ok, buffer = cv2.imencode(".png", rotated)
     assert ok
@@ -169,62 +171,68 @@ def _draw_faint_diagram(font_path: str) -> bytes:
 
 
 @pytest.mark.skipif(not _HAS_TESSERACT, reason="Tesseract binary is not installed on PATH")
-def test_refine_recovers_labels_the_fast_pass_left_weak() -> None:
+def test_refine_compared_with_the_fast_pass() -> None:
+    """Run the fast pass and the high-accuracy re-read on the same hard image
+    and print a comparison (visible in CI via `pytest -rsp`). The re-read must
+    return usable, id-scoped text within budget and never touch structure."""
     font_path = next((path for path in _LATIN_FONT_CANDIDATES if os.path.exists(path)), None)
     if font_path is None:
         pytest.skip("No usable TrueType font")
     from app.recognizer import recognize_image
 
-    data = _draw_faint_diagram(font_path)
+    data = _draw_hard_diagram(font_path)
 
     normal_start = time.perf_counter()
     normal = recognize_image(data)
     normal_ms = (time.perf_counter() - normal_start) * 1000
 
-    weak = [s for s in normal.states if s.confidence < 0.8 or s.name.strip().lower().startswith("state ")]
-    weak += [
-        s for s in normal.states
-        if s not in weak and s.name.strip().upper() not in {"READY"}  # REVIEWING may be read but poorly
+    targets = [
+        RefineRegion(id=s.id, kind="state", box=(int(s.geometry.x), int(s.geometry.y), int(s.geometry.width), int(s.geometry.height)))
+        for s in normal.states
+    ] + [
+        RefineRegion(id=t.id, kind="transition", box=(int(t.geometry.x), int(t.geometry.y), int(t.geometry.width), int(t.geometry.height)))
+        for t in normal.transitions
     ]
-    weak_events = [t for t in normal.transitions if t.confidence < 0.8 or t.event.strip().lower().startswith("event_")]
-
-    targets = [RefineRegion(id=s.id, kind="state", box=(int(s.geometry.x), int(s.geometry.y), int(s.geometry.width), int(s.geometry.height))) for s in weak]
-    targets += [RefineRegion(id=t.id, kind="transition", box=(int(t.geometry.x), int(t.geometry.y), int(t.geometry.width), int(t.geometry.height))) for t in weak_events]
     if not targets:
-        pytest.skip("fast pass already read every label with high confidence -- nothing to refine")
+        pytest.skip("fast pass detected no boxes to re-read")
 
     refine_start = time.perf_counter()
     refined = refine_regions(data, targets)
-    refine_ms = (time.perf_counter() - refine_start) * 1000
-
+    refine_wall_ms = (time.perf_counter() - refine_start) * 1000
     readings = {item.id: item for item in refined.items}
-    print(
-        "\n[REFINE COMPARISON]"
-        f"\n  normal : {normal_ms:7.0f} ms  states={[(s.name, round(s.confidence, 2)) for s in normal.states]}"
-        f"  events={[(t.event, round(t.confidence, 2)) for t in normal.transitions]}"
-        f"\n  refine : {refined.processing_ms:7.0f} ms  targets={len(targets)}  applied={len(readings)}"
-        f"  items={[(i.id, i.text, round(i.confidence, 2)) for i in refined.items]}"
-        f"  timed_out={refined.timed_out}"
-        f"\n  wallclock refine={refine_ms:.0f} ms"
-    )
 
-    # Structure is untouched: refine returns text only, never states/transitions.
-    assert not hasattr(refined, "states")
-    # It must not have invented readings for ids it was not asked about.
-    assert set(readings) <= {t.id for t in targets}
-    # Stays inside the advertised budget.
-    assert refined.processing_ms < 70_000
-    # At least one weak label should now be readable, and better than before.
-    improved = False
-    for state in normal.states:
-        hit = readings.get(state.id)
-        if hit and hit.confidence >= state.confidence and any(c.isalnum() for c in hit.text):
-            improved = True
-    for edge in normal.transitions:
-        hit = readings.get(edge.id)
-        if hit and hit.confidence >= edge.confidence and any(c.isalnum() for c in hit.text):
-            improved = True
-    assert improved, f"refine produced nothing usable: {refined.items}"
+    weak_before = [
+        (s.id, s.name, round(s.confidence, 2))
+        for s in normal.states
+        if s.confidence < 0.8 or s.name.strip().lower().startswith("state ")
+    ] + [
+        (t.id, t.event, round(t.confidence, 2))
+        for t in normal.transitions
+        if t.confidence < 0.8 or t.event.strip().lower().startswith("event_")
+    ]
+    report_lines = [
+        "",
+        "[REFINE COMPARISON]",
+        "  fast pass    : {:8.0f} ms  states={}  events={}".format(
+            normal_ms,
+            [(s.name, round(s.confidence, 2)) for s in normal.states],
+            [(t.event, round(t.confidence, 2)) for t in normal.transitions],
+        ),
+        "  weak after fast pass: {}".format(weak_before),
+        "  high-accuracy: {:8.0f} ms (wallclock {:.0f} ms)  targets={}  applied={}  timed_out={}".format(
+            refined.processing_ms, refine_wall_ms, len(targets), len(readings), refined.timed_out
+        ),
+        "  re-read items: {}".format([(i.id, i.text, round(i.confidence, 2)) for i in refined.items]),
+    ]
+    print("\n".join(report_lines))
+
+    assert not hasattr(refined, "states") and not hasattr(refined, "transitions")
+    assert set(readings) <= {t.id for t in targets}, "re-read invented an id it was not asked about"
+    assert refined.processing_ms < 70_000, "re-read blew the time budget"
+    for item in refined.items:
+        assert item.text.strip() and any(character.isalnum() for character in item.text)
+        assert 0.5 <= item.confidence <= 0.97
+    assert readings, "re-read produced nothing usable: {}".format(refined.items)
 
 
 @pytest.mark.skipif(not _HAS_TESSERACT, reason="Tesseract binary is not installed on PATH")
