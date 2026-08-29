@@ -708,7 +708,7 @@ _BATCH_GAP = 34
 
 def _read_labels_batched(
     gray: np.ndarray,
-    rois: list[tuple[object, tuple[int, int, int, int]]],
+    rois: list[tuple[object, tuple[int, int, int, int], float]],
     *,
     binarized: bool = False,
 ) -> dict:
@@ -720,8 +720,8 @@ def _read_labels_batched(
     trades N subprocess spawns for one without distorting the glyphs.
     """
     prepared: list[tuple[object, tuple[int, int, int, int], np.ndarray]] = []
-    for key, box in rois:
-        roi = _prepare_label_roi(gray, box, inner_margin_ratio=0.0)
+    for key, box, margin in rois:
+        roi = _prepare_label_roi(gray, box, inner_margin_ratio=margin)
         if roi is not None:
             prepared.append((key, box, _binarize_label_roi(roi) if binarized else roi))
     if not prepared:
@@ -1196,18 +1196,18 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
 
     batched: dict = {}
     if not ocr_failed and time.perf_counter() < ocr_deadline:
-        weak_rois: list[tuple[object, tuple[int, int, int, int]]] = []
+        weak_rois: list[tuple[object, tuple[int, int, int, int], float]] = []
         for index, (box, (_, confidence)) in enumerate(zip(boxes, state_global)):
             if confidence < global_trust:
-                weak_rois.append((("s", index), box))
+                weak_rois.append((("s", index), box, 0.16))
         for index, (detected, (_, confidence)) in enumerate(zip(detected_transitions, transition_global)):
             if confidence < global_trust:
-                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3])))
+                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3]), 0.0))
         if weak_rois:
             stage = time.perf_counter()
             batched = _read_labels_batched(processed.ocr_gray, weak_rois)
             retry = [
-                (key, box) for key, box in weak_rois
+                (key, box, margin) for key, box, margin in weak_rois
                 if (batched.get(key) is None or batched[key].confidence < 0.6)
             ]
             if retry and time.perf_counter() < ocr_deadline:
