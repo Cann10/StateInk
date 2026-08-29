@@ -642,8 +642,9 @@ def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int], perp: float 
     centre_y = (p1[1] + p2[1]) / 2 + perp_y * perp * length - length * 0.05
     # The event label sits near the midpoint but *where* varies: above a roughly
     # horizontal arrow, or off to one side of a diagonal one. The caller probes
-    # perp = 0 / +0.42 / -0.42, so each window can be a little tighter.
-    side = int(max(120, min(320, length * (0.5 if perp else 0.62))))
+    # perp = 0 / +0.5 / -0.5; the flank windows stay generous so an edge glyph
+    # (a lowercase "f" etc.) is not clipped.
+    side = int(max(140, min(320, length * (0.58 if perp else 0.62))))
     return (int(centre_x - side / 2), int(centre_y - side / 2), side, side)
 
 
@@ -1167,8 +1168,8 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
                 # Probe the midpoint and both perpendicular sides -- diagonal
                 # arrows carry their label off to one flank, not just above.
                 weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3], 0.0), 0.0, 0.06))
-                weak_rois.append((("tp", index), _transition_label_roi(detected[2], detected[3], 0.42), 0.0, 0.06))
-                weak_rois.append((("tn", index), _transition_label_roi(detected[2], detected[3], -0.42), 0.0, 0.06))
+                weak_rois.append((("tp", index), _transition_label_roi(detected[2], detected[3], 0.5), 0.0, 0.03))
+                weak_rois.append((("tn", index), _transition_label_roi(detected[2], detected[3], -0.5), 0.0, 0.03))
         if weak_rois:
             stage = time.perf_counter()
             batched = _read_labels_batched(processed.ocr_gray, weak_rois)
