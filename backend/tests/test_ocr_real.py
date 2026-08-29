@@ -31,6 +31,15 @@ _CJK_FONT_CANDIDATES = (
     "C:/Windows/Fonts/msgothic.ttc",
 )
 
+_LATIN_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    *_CJK_FONT_CANDIDATES,
+)
+
 
 def _white_canvas(width: int = 260, height: int = 130) -> np.ndarray:
     return np.full((height, width, 3), 255, np.uint8)
@@ -69,3 +78,53 @@ def test_real_ocr_reads_japanese_label() -> None:
     assert region is not None
     recovered = _normalize_ocr_text(region.text)
     assert "実" in recovered and "行" in recovered, f"unexpected OCR text: {region.text!r}"
+
+
+def _draw_printed_diagram(font_path: str) -> bytes:
+    """A hand-drawing-like diagram: ellipse states, modest text near the curved
+    outline, thin strokes, a few degrees of rotation."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = 760, 380
+    image = np.full((height, width, 3), 255, np.uint8)
+    cv2.ellipse(image, (150, 190), (110, 66), 0, 0, 360, (0, 0, 0), 3)
+    cv2.ellipse(image, (610, 190), (110, 66), 0, 0, 360, (0, 0, 0), 3)
+    cv2.arrowedLine(image, (262, 190), (498, 190), (0, 0, 0), 3, tipLength=0.12)
+
+    pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil)
+    label_font = ImageFont.truetype(font_path, 24)
+    event_font = ImageFont.truetype(font_path, 20)
+    draw.text((92, 178), "WAITING", font=label_font, fill=(0, 0, 0))
+    draw.text((548, 178), "DISPENSE", font=label_font, fill=(0, 0, 0))
+    draw.text((352, 160), "coin", font=event_font, fill=(0, 0, 0))
+    rendered = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+    rotation = cv2.getRotationMatrix2D((width / 2, height / 2), 3.0, 1.0)
+    rotated = cv2.warpAffine(rendered, rotation, (width, height), borderValue=(255, 255, 255))
+    ok, buffer = cv2.imencode(".png", rotated)
+    assert ok
+    return buffer.tobytes()
+
+
+def test_printed_state_and_event_labels_are_read() -> None:
+    """A legible 2-state diagram (WAITING -> DISPENSE, event `coin`) should be
+    auto-named rather than left as `State N` / `event_N`."""
+    font_path = next((path for path in _LATIN_FONT_CANDIDATES if os.path.exists(path)), None)
+    if font_path is None:
+        pytest.skip("No usable TrueType font to render printed labels")
+    from app.recognizer import recognize_image
+
+    result = recognize_image(_draw_printed_diagram(font_path))
+
+    names = [state.name for state in result.states]
+    events = [edge.event for edge in result.transitions]
+    print("recognized states:", names, "events:", events)
+
+    assert len(result.states) == 2, names
+    joined = " ".join(name.upper() for name in names)
+    assert "WAIT" in joined, f"WAITING not read: {names}"
+    assert "DISP" in joined, f"DISPENSE not read: {names}"
+    assert not any(name.startswith("State ") for name in names), names
+    if events:
+        assert any("coin" in event.lower() for event in events), events

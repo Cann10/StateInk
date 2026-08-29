@@ -57,6 +57,9 @@ class _PreprocessedImage:
     inverse_transform: np.ndarray
     quality: float
     corrections: tuple[str, ...]
+    # Perspective/skew-corrected grayscale with illumination flattened but no
+    # CLAHE sharpening; the cleanest source for cropped, upscaled label OCR.
+    ocr_gray: np.ndarray
 
 
 def _normalize_ocr_text(text: str) -> str:
@@ -162,7 +165,7 @@ def _estimate_skew(gray: np.ndarray) -> float:
     return median if 1.0 <= abs(median) <= 12 and consensus >= 0.42 else 0.0
 
 
-def _enhance_and_binarize(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+def _enhance_and_binarize(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
     background_size = max(15, (min(gray.shape) // 18) | 1)
     background = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, np.ones((background_size, background_size), np.uint8))
     shadow_removed = cv2.divide(gray, np.maximum(background, 1), scale=255)
@@ -184,7 +187,7 @@ def _enhance_and_binarize(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray, flo
     contrast = min(1.0, max(0.0, contrast_delta / 175))
     sharpness = min(1.0, float(cv2.Laplacian(enhanced, cv2.CV_64F).var()) / 180)
     quality = round(max(0.35, min(0.98, 0.58 * contrast + 0.42 * sharpness)), 2)
-    return enhanced, binary, quality
+    return enhanced, binary, quality, shadow_removed
 
 
 def _preprocess_image(image: np.ndarray) -> _PreprocessedImage:
@@ -215,7 +218,7 @@ def _preprocess_image(image: np.ndarray) -> _PreprocessedImage:
         31,
         9,
     )
-    enhanced, binary, quality = _enhance_and_binarize(gray)
+    enhanced, binary, quality, ocr_gray = _enhance_and_binarize(gray)
     return _PreprocessedImage(
         gray=enhanced,
         binary=binary,
@@ -223,6 +226,7 @@ def _preprocess_image(image: np.ndarray) -> _PreprocessedImage:
         inverse_transform=np.linalg.inv(transform),
         quality=quality,
         corrections=tuple(corrections),
+        ocr_gray=ocr_gray,
     )
 
 
@@ -559,6 +563,119 @@ def _crop_ocr_region(image: np.ndarray, box: tuple[int, int, int, int], *, psm: 
         return None
     confidence = sum(value * weight for value, weight in confidences) / sum(weight for _, weight in confidences)
     return _OcrRegion(text=combined, box=(x1, y1, x2 - x1, y2 - y1), confidence=confidence)
+
+
+# --- Local label OCR: crop -> upscale -> binarize -> multi-PSM, keep the best ---
+
+_ROI_LABEL_PSMS = (7, 6, 11)
+_ROI_TARGET_HEIGHT = 150
+_ROI_MAX_SCALE = 4.0
+_ROI_EARLY_ACCEPT = 0.9
+
+
+def _norm_ocr_key(text: str) -> str:
+    """Loose key for comparing two OCR readings of the same label."""
+    return "".join(ch for ch in _normalize_ocr_text(text).lower() if ch.isalnum())
+
+
+def _ocr_words_to_text(data: dict) -> tuple[str, float]:
+    tokens: list[tuple[int, int, str, float, int]] = []
+    for index, raw_text in enumerate(data.get("text", [])):
+        text = _normalize_ocr_text(str(raw_text))
+        try:
+            confidence = float(data["conf"][index]) / 100
+            top = int(data["top"][index])
+            left = int(data["left"][index])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if confidence < 0 or not text or not any(character.isalnum() for character in text):
+            continue
+        tokens.append((top, left, text, confidence, max(1, len(text.replace(" ", "")))))
+    if not tokens:
+        return "", 0.0
+    tokens.sort(key=lambda item: (item[0] // 12, item[1]))
+    combined = _join_ocr_tokens([item[2] for item in tokens])
+    weight = sum(item[4] for item in tokens)
+    confidence = sum(item[3] * item[4] for item in tokens) / weight if weight else 0.0
+    return combined, confidence
+
+
+def _prepare_label_roi(gray: np.ndarray, box: tuple[int, int, int, int], *, inner_margin_ratio: float) -> np.ndarray | None:
+    height, width = gray.shape[:2]
+    x, y, box_width, box_height = box
+    margin_x = int(round(box_width * inner_margin_ratio))
+    margin_y = int(round(box_height * inner_margin_ratio))
+    x1 = max(0, x + margin_x)
+    y1 = max(0, y + margin_y)
+    x2 = min(width, x + box_width - margin_x)
+    y2 = min(height, y + box_height - margin_y)
+    if x2 - x1 < 10 or y2 - y1 < 8:
+        return None
+    crop = gray[y1:y2, x1:x2]
+    if float(crop.std()) < 6.0:  # essentially blank -- nothing to read
+        return None
+    scale = min(_ROI_MAX_SCALE, max(1.0, _ROI_TARGET_HEIGHT / max(1, crop.shape[0])))
+    if scale > 1.01:
+        crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    return cv2.copyMakeBorder(crop, 14, 14, 14, 14, cv2.BORDER_CONSTANT, value=255)
+
+
+def _binarize_label_roi(roi: np.ndarray) -> np.ndarray:
+    blurred = cv2.GaussianBlur(roi, (3, 3), 0)
+    _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Tesseract wants dark glyphs on a light field.
+    if float(np.count_nonzero(otsu == 0)) > otsu.size * 0.5:
+        otsu = cv2.bitwise_not(otsu)
+    return otsu
+
+
+def _read_label_from_roi(gray: np.ndarray, box: tuple[int, int, int, int], *, inner_margin_ratio: float) -> _OcrRegion | None:
+    roi = _prepare_label_roi(gray, box, inner_margin_ratio=inner_margin_ratio)
+    if roi is None:
+        return None
+    language = _available_ocr_language() or OCR_LANGUAGE
+    best_text, best_confidence = "", 0.0
+    for variant in (roi, _binarize_label_roi(roi)):
+        for psm in _ROI_LABEL_PSMS:
+            try:
+                data = pytesseract.image_to_data(
+                    variant,
+                    lang=language,
+                    config=f"--oem 1 --psm {psm}",
+                    output_type=pytesseract.Output.DICT,
+                    timeout=4,
+                )
+            except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
+                continue
+            text, confidence = _ocr_words_to_text(data)
+            if text and confidence > best_confidence:
+                best_text, best_confidence = text, confidence
+            if best_confidence >= _ROI_EARLY_ACCEPT:
+                break
+        if best_confidence >= _ROI_EARLY_ACCEPT:
+            break
+    if not best_text:
+        return None
+    return _OcrRegion(text=best_text, box=box, confidence=round(best_confidence, 4))
+
+
+def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int, int, int]:
+    middle_x, middle_y = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
+    length = math.dist(p1, p2)
+    roi_width = int(max(90, min(240, length * 0.6)))
+    roi_height = 74
+    return (middle_x - roi_width // 2, middle_y - roi_height // 2, roi_width, roi_height)
+
+
+def _resolve_label(global_text: str, global_confidence: float, local: _OcrRegion | None) -> tuple[str, float]:
+    """Cross-check the whole-image reading against the upscaled local crop."""
+    local_text = local.text if local else ""
+    local_confidence = local.confidence if local else 0.0
+    if global_text and local_text and _norm_ocr_key(global_text) == _norm_ocr_key(local_text):
+        return local_text, min(0.98, max(global_confidence, local_confidence) + 0.08)
+    if local_confidence >= max(global_confidence, 0.001):
+        return local_text, local_confidence
+    return global_text, global_confidence
 
 
 def _supplement_ocr_regions(
@@ -962,24 +1079,41 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     )
     low_ocr_labels: list[str] = []
     unread_labels: list[str] = []
-    for state, regions in zip(states, state_ocr):
-        if not regions:
+    # Only spend the extra upscaled multi-PSM passes when the whole-image read is
+    # weak; a confident global reading is kept as-is.
+    global_trust = 0.78
+    for state, box, regions in zip(states, boxes, state_ocr):
+        global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
+        if ocr_failed or global_confidence >= global_trust:
+            text, confidence = global_text, global_confidence
+        else:
+            local = _read_label_from_roi(processed.ocr_gray, box, inner_margin_ratio=0.16)
+            text, confidence = _resolve_label(global_text, global_confidence, local)
+        if not text:
             state.confidence = min(state.confidence, 0.58)
             unread_labels.append(state.name)
             continue
-        text, confidence = _combine_ocr_regions(regions)
         if confidence >= OCR_AUTO_LABEL_CONFIDENCE:
             state.name = text
             state.confidence = _label_confidence(state.confidence, confidence)
         else:
             state.confidence = min(state.confidence, round(confidence, 2))
             low_ocr_labels.append(f"{state.name} ({confidence:.0%})")
-    for transition, regions in zip(transitions, transition_ocr):
-        if not regions:
+    for transition, detected, regions in zip(transitions, detected_transitions, transition_ocr):
+        global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
+        if ocr_failed or global_confidence >= global_trust:
+            text, confidence = global_text, global_confidence
+        else:
+            local = _read_label_from_roi(
+                processed.ocr_gray, _transition_label_roi(detected[2], detected[3]), inner_margin_ratio=0.0
+            )
+            if local is not None and _state_ocr_owner(local, boxes) is not None:
+                local = None  # midpoint crop drifted into a state; ignore it
+            text, confidence = _resolve_label(global_text, global_confidence, local)
+        if not text:
             transition.confidence = min(transition.confidence, 0.58)
             unread_labels.append(transition.event)
             continue
-        text, confidence = _combine_ocr_regions(regions)
         if confidence >= OCR_AUTO_LABEL_CONFIDENCE:
             transition.event = text
             transition.confidence = _label_confidence(transition.confidence, confidence)
