@@ -488,7 +488,7 @@ def _state_ocr_owner(region: _OcrRegion, boxes: list[tuple[int, int, int, int]])
     for index, box in enumerate(boxes):
         inside_or_overlapping = _inside((int(center[0]), int(center[1])), box, margin=-8) or _intersection_ratio(region.box, box) >= 0.25
         gap = _box_gap(region.box, box)
-        near_limit = max(14.0, min(box[2], box[3]) * 0.2)
+        near_limit = max(8.0, min(box[2], box[3]) * 0.06)
         if inside_or_overlapping or gap <= near_limit:
             candidates.append((0 if inside_or_overlapping else 1, gap, _distance((int(center[0]), int(center[1])), box), index))
     return min(candidates)[3] if candidates else None
@@ -599,11 +599,17 @@ def _ocr_words_to_text(data: dict) -> tuple[str, float]:
     return combined, confidence
 
 
-def _prepare_label_roi(gray: np.ndarray, box: tuple[int, int, int, int], *, inner_margin_ratio: float) -> np.ndarray | None:
+def _prepare_label_roi(
+    gray: np.ndarray,
+    box: tuple[int, int, int, int],
+    *,
+    margin_x_ratio: float,
+    margin_y_ratio: float,
+) -> np.ndarray | None:
     height, width = gray.shape[:2]
     x, y, box_width, box_height = box
-    margin_x = int(round(box_width * inner_margin_ratio))
-    margin_y = int(round(box_height * inner_margin_ratio))
+    margin_x = int(round(box_width * margin_x_ratio))
+    margin_y = int(round(box_height * margin_y_ratio))
     x1 = max(0, x + margin_x)
     y1 = max(0, y + margin_y)
     x2 = min(width, x + box_width - margin_x)
@@ -631,17 +637,17 @@ def _binarize_label_roi(roi: np.ndarray) -> np.ndarray:
 def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int, int, int]:
     middle_x, middle_y = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
     length = math.dist(p1, p2)
-    roi_width = int(max(90, min(240, length * 0.6)))
-    roi_height = 74
-    return (middle_x - roi_width // 2, middle_y - roi_height // 2, roi_width, roi_height)
+    roi_width = int(max(96, min(260, length * 0.66)))
+    roi_height = 104
+    return (middle_x - roi_width // 2, middle_y - int(roi_height * 0.72), roi_width, roi_height)
 
 
-_BATCH_GAP = 34
+_BATCH_GAP = 46
 
 
 def _read_labels_batched(
     gray: np.ndarray,
-    rois: list[tuple[object, tuple[int, int, int, int], float]],
+    rois: list[tuple[object, tuple[int, int, int, int], float, float]],
     *,
     binarized: bool = False,
 ) -> dict:
@@ -653,8 +659,8 @@ def _read_labels_batched(
     trades N subprocess spawns for one without distorting the glyphs.
     """
     prepared: list[tuple[object, tuple[int, int, int, int], np.ndarray]] = []
-    for key, box, margin in rois:
-        roi = _prepare_label_roi(gray, box, inner_margin_ratio=margin)
+    for key, box, margin_x, margin_y in rois:
+        roi = _prepare_label_roi(gray, box, margin_x_ratio=margin_x, margin_y_ratio=margin_y)
         if roi is not None:
             prepared.append((key, box, _binarize_label_roi(roi) if binarized else roi))
     if not prepared:
@@ -796,6 +802,23 @@ def _detect_states(binary: np.ndarray) -> list[tuple[int, int, int, int]]:
         if looks_like_state:
             shape_score = circularity + min(0.12, area / image_area * 2)
             candidates.append((shape_score, (x, y, width, height)))
+
+    def _center_inside(inner: tuple[int, int, int, int], outer: tuple[int, int, int, int]) -> bool:
+        cx, cy = _box_center(inner)
+        ox, oy, ow, oh = outer
+        return ox < cx < ox + ow and oy < cy < oy + oh
+
+    # A letter counter (D/O/P/A ...) sits fully inside its state outline; drop any
+    # candidate that a >=2x larger candidate contains. The outer outline is kept.
+    candidates = [
+        candidate for candidate in candidates
+        if not any(
+            other is not candidate
+            and other[1][2] * other[1][3] >= 2.0 * (candidate[1][2] * candidate[1][3])
+            and _center_inside(candidate[1], other[1])
+            for other in candidates
+        )
+    ]
 
     selected: list[tuple[int, int, int, int]] = []
     for _, box in sorted(candidates, key=lambda item: (item[0], item[1][2] * item[1][3]), reverse=True):
@@ -1129,18 +1152,19 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
 
     batched: dict = {}
     if not ocr_failed and time.perf_counter() < ocr_deadline:
-        weak_rois: list[tuple[object, tuple[int, int, int, int], float]] = []
+        weak_rois: list[tuple[object, tuple[int, int, int, int], float, float]] = []
         for index, (box, (_, confidence)) in enumerate(zip(boxes, state_global)):
             if confidence < global_trust:
-                weak_rois.append((("s", index), box, 0.16))
+                # Centre band of the ellipse/box: wide, but clear of the top/bottom arcs.
+                weak_rois.append((("s", index), box, 0.09, 0.27))
         for index, (detected, (_, confidence)) in enumerate(zip(detected_transitions, transition_global)):
             if confidence < global_trust:
-                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3]), 0.0))
+                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3]), 0.0, 0.06))
         if weak_rois:
             stage = time.perf_counter()
             batched = _read_labels_batched(processed.ocr_gray, weak_rois)
             retry = [
-                (key, box, margin) for key, box, margin in weak_rois
+                (key, box, mx, my) for key, box, mx, my in weak_rois
                 if (batched.get(key) is None or batched[key].confidence < 0.6)
             ]
             if retry and time.perf_counter() < ocr_deadline:
