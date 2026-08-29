@@ -21,9 +21,11 @@ import pytesseract
 from .recognizer import (
     OCR_LANGUAGE,
     _available_ocr_language,
+    _detect_page_quad,
+    _estimate_skew,
     _normalize_ocr_text,
     _ocr_words_to_text,
-    _preprocess_image,
+    _warp_page,
 )
 
 _REFINE_BUDGET_S = 55.0
@@ -64,6 +66,35 @@ def _cleanliness(text: str) -> float:
     ratio = alnum / len(stripped)
     length_ok = 1.0 if 1 <= len(stripped) <= 24 else 0.55
     return ratio * length_ok
+
+
+def _correct_for_ocr(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Perspective + skew correction and shadow flattening for cleaner label
+    OCR. Deliberately NOT ``recognizer._preprocess_image`` -- that one counts
+    blobs with ``_detect_states`` to tune its binariser. This path never runs
+    any structure / connection / direction detection.
+
+    Returns ``(ocr_gray, forward_transform)`` where ``forward_transform`` maps
+    original-image coordinates into the corrected image.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    transform = np.eye(3, dtype=np.float64)
+    quad = _detect_page_quad(gray)
+    if quad is not None:
+        warped = _warp_page(gray, quad)
+        if warped is not None:
+            gray, perspective = warped  # perspective is a 3x3 homography
+            transform = perspective @ transform
+    skew = _estimate_skew(gray)
+    if skew:
+        height, width = gray.shape
+        rotation = cv2.getRotationMatrix2D((width / 2, height / 2), -skew, 1.0)
+        gray = cv2.warpAffine(gray, rotation, (width, height), flags=cv2.INTER_CUBIC, borderValue=255)
+        transform = np.vstack((rotation, (0.0, 0.0, 1.0))) @ transform
+    background_size = max(15, (min(gray.shape) // 18) | 1)
+    background = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, np.ones((background_size, background_size), np.uint8))
+    ocr_gray = cv2.divide(gray, np.maximum(background, 1), scale=255)
+    return ocr_gray, transform
 
 
 def _clip_box(box: tuple[int, int, int, int], width: int, height: int) -> tuple[int, int, int, int]:
@@ -199,8 +230,7 @@ def refine_regions(data: bytes, regions: list[RefineRegion]) -> RefineResult:
             attempted=0,
         )
     gray_orig = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    processed = _preprocess_image(image)
-    forward = np.linalg.inv(processed.inverse_transform)
+    ocr_gray, forward = _correct_for_ocr(image)
     deadline = started + _REFINE_BUDGET_S
     items: list[RefineItem] = []
     attempted = 0
@@ -212,7 +242,7 @@ def refine_regions(data: bytes, regions: list[RefineRegion]) -> RefineResult:
         regions_left = len(regions) - index
         region_deadline = min(deadline, now + max(6.0, (deadline - now) / regions_left))
         text, confidence = _read_region(
-            gray_orig, processed.ocr_gray, forward, region, region_deadline
+            gray_orig, ocr_gray, forward, region, region_deadline
         )
         if text and confidence >= _REFINE_MIN_CONFIDENCE and _cleanliness(text) >= 0.5:
             items.append(RefineItem(id=region.id, text=text, confidence=round(min(0.97, confidence), 2)))

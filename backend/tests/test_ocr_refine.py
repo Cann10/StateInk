@@ -108,20 +108,30 @@ def test_refine_endpoint_rejects_non_image() -> None:
 
 
 def test_refine_never_runs_structure_detection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`refine_regions` must not touch state/transition/connection detection."""
+    """`refine_regions` must not run structure / transition / connection /
+    direction detection, and must not fall back to the full recognition
+    preprocessor (which counts blobs to tune its binariser)."""
     import app.recognizer as recognizer
 
-    for name in ("_detect_states", "_detect_transitions", "_infer_connected_states", "_detect_curved_connections"):
-        def _forbidden(*_args, _name=name, **_kwargs):  # pragma: no cover - only if regressed
+    forbidden = (
+        "_detect_states",
+        "_detect_transitions",
+        "_infer_connected_states",
+        "_detect_curved_connections",
+        "_preprocess_image",
+        "recognize_image",
+    )
+    for name in forbidden:
+        def _blocked(*_args, _name=name, **_kwargs):  # pragma: no cover - only if regressed
             raise AssertionError(f"refine must not call {_name}")
 
-        monkeypatch.setattr(recognizer, name, _forbidden)
+        monkeypatch.setattr(recognizer, name, _blocked)
 
     ok, buffer = cv2.imencode(".png", np.full((120, 200, 3), 255, np.uint8))
     assert ok
     result = refine_regions(buffer.tobytes(), [RefineRegion(id="s1", kind="state", box=(10, 10, 80, 40))])
     assert isinstance(result, RefineResult)
-    # No text fields for connection/direction exist on the result at all.
+    # It carries text readings only -- no structure / connection / direction fields.
     assert not hasattr(result, "transitions")
     assert not hasattr(result, "states")
 
