@@ -13,8 +13,8 @@
   --color-border: #dde4df;
   --color-border-strong: #c8d4cd;
   --color-text: #17211c;
-  --color-text-secondary: #68736d;
-  --color-text-muted: #89938e;
+  --color-text-secondary: #5c665f; /* AA (>=4.5:1) on surface and background */
+  --color-text-muted: #616b66; /* AA (>=4.5:1) on surface and background */
   --color-warning: #b85c16;
   --color-warning-bg: #fff4e8;
   --color-error: #b33a3a;
