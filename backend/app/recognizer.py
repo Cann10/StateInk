@@ -565,12 +565,28 @@ def _crop_ocr_region(image: np.ndarray, box: tuple[int, int, int, int], *, psm: 
     return _OcrRegion(text=combined, box=(x1, y1, x2 - x1, y2 - y1), confidence=confidence)
 
 
-# --- Local label OCR: crop -> upscale -> binarize -> multi-PSM, keep the best ---
+# --- Local label OCR: one fast pass; escalate only for weak, low-confidence ROIs ---
 
-_ROI_LABEL_PSMS = (7, 6, 11)
 _ROI_TARGET_HEIGHT = 150
 _ROI_MAX_SCALE = 4.0
-_ROI_EARLY_ACCEPT = 0.9
+_ROI_FAST_PSM = 7                 # single upscaled-grayscale line pass
+_ROI_ESCALATION_PSMS = (6, 11)
+_ROI_FAST_ACCEPT = 0.72          # a tier-1 reading this strong is kept as-is
+_ROI_ESCALATION_STOP = 0.86     # any escalation reading this strong ends the loop
+_ROI_ESCALATION_BUDGET = 6      # ROIs allowed to run the extra passes per image
+
+
+class _OcrBudget:
+    """Caps how many ROIs may run the extra escalation passes for one image."""
+
+    def __init__(self, escalations: int = _ROI_ESCALATION_BUDGET) -> None:
+        self._left = escalations
+
+    def take(self) -> bool:
+        if self._left <= 0:
+            return False
+        self._left -= 1
+        return True
 
 
 def _norm_ocr_key(text: str) -> str:
@@ -629,34 +645,51 @@ def _binarize_label_roi(roi: np.ndarray) -> np.ndarray:
     return otsu
 
 
-def _read_label_from_roi(gray: np.ndarray, box: tuple[int, int, int, int], *, inner_margin_ratio: float) -> _OcrRegion | None:
+def _ocr_roi_pass(image: np.ndarray, language: str, psm: int) -> tuple[str, float]:
+    try:
+        data = pytesseract.image_to_data(
+            image,
+            lang=language,
+            config=f"--oem 1 --psm {psm}",
+            output_type=pytesseract.Output.DICT,
+            timeout=4,
+        )
+    except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
+        return "", 0.0
+    return _ocr_words_to_text(data)
+
+
+def _read_label_from_roi(
+    gray: np.ndarray,
+    box: tuple[int, int, int, int],
+    *,
+    inner_margin_ratio: float,
+    budget: _OcrBudget | None = None,
+    cache: dict | None = None,
+) -> _OcrRegion | None:
+    if cache is not None and box in cache:
+        return cache[box]
     roi = _prepare_label_roi(gray, box, inner_margin_ratio=inner_margin_ratio)
     if roi is None:
-        return None
-    language = _available_ocr_language() or OCR_LANGUAGE
-    best_text, best_confidence = "", 0.0
-    for variant in (roi, _binarize_label_roi(roi)):
-        for psm in _ROI_LABEL_PSMS:
-            try:
-                data = pytesseract.image_to_data(
-                    variant,
-                    lang=language,
-                    config=f"--oem 1 --psm {psm}",
-                    output_type=pytesseract.Output.DICT,
-                    timeout=4,
-                )
-            except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
-                continue
-            text, confidence = _ocr_words_to_text(data)
-            if text and confidence > best_confidence:
-                best_text, best_confidence = text, confidence
-            if best_confidence >= _ROI_EARLY_ACCEPT:
-                break
-        if best_confidence >= _ROI_EARLY_ACCEPT:
-            break
-    if not best_text:
-        return None
-    return _OcrRegion(text=best_text, box=box, confidence=round(best_confidence, 4))
+        result = None
+    else:
+        language = _available_ocr_language() or OCR_LANGUAGE
+        # Tier 1: a single pass on the upscaled grayscale crop.
+        best_text, best_confidence = _ocr_roi_pass(roi, language, _ROI_FAST_PSM)
+        # Tier 2: only weak readings escalate, and only while the per-image budget lasts.
+        if best_confidence < _ROI_FAST_ACCEPT and (budget is None or budget.take()):
+            attempts = [(_binarize_label_roi(roi), _ROI_FAST_PSM)]
+            attempts += [(roi, psm) for psm in _ROI_ESCALATION_PSMS]
+            for image_variant, psm in attempts:
+                text, confidence = _ocr_roi_pass(image_variant, language, psm)
+                if text and confidence > best_confidence:
+                    best_text, best_confidence = text, confidence
+                if best_confidence >= _ROI_ESCALATION_STOP:
+                    break
+        result = _OcrRegion(text=best_text, box=box, confidence=round(best_confidence, 4)) if best_text else None
+    if cache is not None:
+        cache[box] = result
+    return result
 
 
 def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int, int, int]:
@@ -676,37 +709,6 @@ def _resolve_label(global_text: str, global_confidence: float, local: _OcrRegion
     if local_confidence >= max(global_confidence, 0.001):
         return local_text, local_confidence
     return global_text, global_confidence
-
-
-def _supplement_ocr_regions(
-    image: np.ndarray,
-    regions: list[_OcrRegion],
-    boxes: list[tuple[int, int, int, int]],
-    transition_paths: list[tuple[tuple[int, int], tuple[int, int]]],
-) -> list[_OcrRegion]:
-    supplemented = list(regions)
-    state_regions, transition_regions = _associate_ocr_regions(supplemented, boxes, transition_paths)
-    for index, box in enumerate(boxes):
-        if state_regions[index]:
-            continue
-        margin_x, margin_y = max(3, box[2] // 10), max(3, box[3] // 10)
-        crop_box = (box[0] + margin_x, box[1] + margin_y, box[2] - margin_x * 2, box[3] - margin_y * 2)
-        region = _crop_ocr_region(image, crop_box)
-        if region is not None:
-            supplemented.append(region)
-    # Retry transition labels in a narrow midpoint region only when global OCR found none.
-    state_regions, transition_regions = _associate_ocr_regions(supplemented, boxes, transition_paths)
-    for index, (start, end) in enumerate(transition_paths):
-        if transition_regions[index]:
-            continue
-        middle_x, middle_y = (start[0] + end[0]) // 2, (start[1] + end[1]) // 2
-        length = math.dist(start, end)
-        crop_width = int(max(80, min(220, length * 0.65)))
-        crop_box = (middle_x - crop_width // 2, middle_y - 42, crop_width, 84)
-        region = _crop_ocr_region(image, crop_box)
-        if region is not None and _state_ocr_owner(region, boxes) is None:
-            supplemented.append(region)
-    return supplemented
 
 
 def _combine_ocr_regions(regions: list[_OcrRegion]) -> tuple[str, float]:
@@ -1061,12 +1063,6 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     if shutil.which("tesseract"):
         try:
             ocr_regions = _extract_ocr_regions(gray)
-            ocr_regions = _supplement_ocr_regions(
-                gray,
-                ocr_regions,
-                boxes,
-                [(item[2], item[3]) for item in detected_transitions],
-            )
         except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
             ocr_failed = True
     else:
@@ -1079,15 +1075,19 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     )
     low_ocr_labels: list[str] = []
     unread_labels: list[str] = []
-    # Only spend the extra upscaled multi-PSM passes when the whole-image read is
-    # weak; a confident global reading is kept as-is.
+    # A confident whole-image reading is kept as-is; only weak ones run the local
+    # crop pass, which itself escalates to extra PSMs only when still weak.
     global_trust = 0.78
+    ocr_budget = _OcrBudget()
+    roi_cache: dict = {}
     for state, box, regions in zip(states, boxes, state_ocr):
         global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
         if ocr_failed or global_confidence >= global_trust:
             text, confidence = global_text, global_confidence
         else:
-            local = _read_label_from_roi(processed.ocr_gray, box, inner_margin_ratio=0.16)
+            local = _read_label_from_roi(
+                processed.ocr_gray, box, inner_margin_ratio=0.16, budget=ocr_budget, cache=roi_cache
+            )
             text, confidence = _resolve_label(global_text, global_confidence, local)
         if not text:
             state.confidence = min(state.confidence, 0.58)
@@ -1105,7 +1105,8 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
             text, confidence = global_text, global_confidence
         else:
             local = _read_label_from_roi(
-                processed.ocr_gray, _transition_label_roi(detected[2], detected[3]), inner_margin_ratio=0.0
+                processed.ocr_gray, _transition_label_roi(detected[2], detected[3]),
+                inner_margin_ratio=0.0, budget=ocr_budget, cache=roi_cache,
             )
             if local is not None and _state_ocr_owner(local, boxes) is not None:
                 local = None  # midpoint crop drifted into a state; ignore it
