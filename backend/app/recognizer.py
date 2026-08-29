@@ -565,28 +565,11 @@ def _crop_ocr_region(image: np.ndarray, box: tuple[int, int, int, int], *, psm: 
     return _OcrRegion(text=combined, box=(x1, y1, x2 - x1, y2 - y1), confidence=confidence)
 
 
-# --- Local label OCR: one fast pass; escalate only for weak, low-confidence ROIs ---
+# --- Local label OCR: crop weak ROIs -> upscale -> one batched (montage) pass ---
 
 _ROI_TARGET_HEIGHT = 150
 _ROI_MAX_SCALE = 4.0
-_ROI_FAST_PSM = 7                 # single upscaled-grayscale line pass
-_ROI_ESCALATION_PSMS = (6, 11)
-_ROI_FAST_ACCEPT = 0.72          # a tier-1 reading this strong is kept as-is
-_ROI_ESCALATION_STOP = 0.86     # any escalation reading this strong ends the loop
-_ROI_ESCALATION_BUDGET = 6      # ROIs allowed to run the extra passes per image
-
-
-class _OcrBudget:
-    """Caps how many ROIs may run the extra escalation passes for one image."""
-
-    def __init__(self, escalations: int = _ROI_ESCALATION_BUDGET) -> None:
-        self._left = escalations
-
-    def take(self) -> bool:
-        if self._left <= 0:
-            return False
-        self._left -= 1
-        return True
+_OCR_PHASE_BUDGET_S = 12.0      # wall-clock cap for global + local OCR combined
 
 
 def _norm_ocr_key(text: str) -> str:
@@ -645,59 +628,91 @@ def _binarize_label_roi(roi: np.ndarray) -> np.ndarray:
     return otsu
 
 
-def _ocr_roi_pass(image: np.ndarray, language: str, psm: int) -> tuple[str, float]:
-    try:
-        data = pytesseract.image_to_data(
-            image,
-            lang=language,
-            config=f"--oem 1 --psm {psm}",
-            output_type=pytesseract.Output.DICT,
-            timeout=4,
-        )
-    except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
-        return "", 0.0
-    return _ocr_words_to_text(data)
-
-
-def _read_label_from_roi(
-    gray: np.ndarray,
-    box: tuple[int, int, int, int],
-    *,
-    inner_margin_ratio: float,
-    budget: _OcrBudget | None = None,
-    cache: dict | None = None,
-) -> _OcrRegion | None:
-    if cache is not None and box in cache:
-        return cache[box]
-    roi = _prepare_label_roi(gray, box, inner_margin_ratio=inner_margin_ratio)
-    if roi is None:
-        result = None
-    else:
-        language = _available_ocr_language() or OCR_LANGUAGE
-        # Tier 1: a single pass on the upscaled grayscale crop.
-        best_text, best_confidence = _ocr_roi_pass(roi, language, _ROI_FAST_PSM)
-        # Tier 2: only weak readings escalate, and only while the per-image budget lasts.
-        if best_confidence < _ROI_FAST_ACCEPT and (budget is None or budget.take()):
-            attempts = [(_binarize_label_roi(roi), _ROI_FAST_PSM)]
-            attempts += [(roi, psm) for psm in _ROI_ESCALATION_PSMS]
-            for image_variant, psm in attempts:
-                text, confidence = _ocr_roi_pass(image_variant, language, psm)
-                if text and confidence > best_confidence:
-                    best_text, best_confidence = text, confidence
-                if best_confidence >= _ROI_ESCALATION_STOP:
-                    break
-        result = _OcrRegion(text=best_text, box=box, confidence=round(best_confidence, 4)) if best_text else None
-    if cache is not None:
-        cache[box] = result
-    return result
-
-
 def _transition_label_roi(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int, int, int]:
     middle_x, middle_y = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
     length = math.dist(p1, p2)
     roi_width = int(max(90, min(240, length * 0.6)))
     roi_height = 74
     return (middle_x - roi_width // 2, middle_y - roi_height // 2, roi_width, roi_height)
+
+
+_BATCH_GAP = 34
+
+
+def _read_labels_batched(
+    gray: np.ndarray,
+    rois: list[tuple[object, tuple[int, int, int, int], float]],
+    *,
+    binarized: bool = False,
+) -> dict:
+    """OCR every weak ROI in ONE Tesseract call.
+
+    Each ROI's upscaled crop keeps its own resolution, is padded to a common
+    width and stacked into one tall montage; a `--psm 6` pass reads it as a block
+    of lines and words map back to their source ROI by vertical position. This
+    trades N subprocess spawns for one without distorting the glyphs.
+    """
+    prepared: list[tuple[object, tuple[int, int, int, int], np.ndarray]] = []
+    for key, box, margin in rois:
+        roi = _prepare_label_roi(gray, box, inner_margin_ratio=margin)
+        if roi is not None:
+            prepared.append((key, box, _binarize_label_roi(roi) if binarized else roi))
+    if not prepared:
+        return {}
+
+    width = max(roi.shape[1] for _, _, roi in prepared)
+    rows: list[np.ndarray] = []
+    spans: list[tuple[object, tuple[int, int, int, int], int, int]] = []
+    cursor = 0
+    for key, box, roi in prepared:
+        pad_right = width - roi.shape[1]
+        cell = cv2.copyMakeBorder(roi, 0, 0, 0, pad_right, cv2.BORDER_CONSTANT, value=255) if pad_right else roi
+        rows.append(cell)
+        rows.append(np.full((_BATCH_GAP, width), 255, np.uint8))
+        spans.append((key, box, cursor, cursor + cell.shape[0]))
+        cursor += cell.shape[0] + _BATCH_GAP
+    montage = cv2.copyMakeBorder(np.vstack(rows), 16, 16, 16, 16, cv2.BORDER_CONSTANT, value=255)
+
+    try:
+        data = pytesseract.image_to_data(
+            montage,
+            lang=_available_ocr_language() or OCR_LANGUAGE,
+            config="--oem 1 --psm 6",
+            output_type=pytesseract.Output.DICT,
+            timeout=15,
+        )
+    except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
+        return {}
+
+    buckets: dict[int, list[tuple[int, str, float, int]]] = {index: [] for index in range(len(spans))}
+    for i, raw_text in enumerate(data.get("text", [])):
+        text = _normalize_ocr_text(str(raw_text))
+        try:
+            confidence = float(data["conf"][i]) / 100
+            top = int(data["top"][i]) - 16
+            left = int(data["left"][i])
+            height = int(data["height"][i])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        if confidence < 0 or not text or not any(ch.isalnum() for ch in text):
+            continue
+        middle = top + height / 2
+        for index, (_, _, y0, y1) in enumerate(spans):
+            if y0 - _BATCH_GAP / 2 <= middle <= y1 + _BATCH_GAP / 2:
+                buckets[index].append((left, text, confidence, max(1, len(text.replace(" ", "")))))
+                break
+
+    results: dict = {}
+    for index, (key, box, _, _) in enumerate(spans):
+        tokens = sorted(buckets[index], key=lambda item: item[0])
+        if not tokens:
+            results[key] = None
+            continue
+        combined = _join_ocr_tokens([token[1] for token in tokens])
+        weight = sum(token[3] for token in tokens)
+        confidence = sum(token[2] * token[3] for token in tokens) / weight if weight else 0.0
+        results[key] = _OcrRegion(text=combined, box=box, confidence=round(confidence, 4)) if combined else None
+    return results
 
 
 def _resolve_label(global_text: str, global_confidence: float, local: _OcrRegion | None) -> tuple[str, float]:
@@ -1016,12 +1031,29 @@ def _detect_transitions(binary: np.ndarray, boxes: list[tuple[int, int, int, int
 
 def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionResult:
     started = time.perf_counter()
+    timings: dict[str, float] = {}
+
+    def _mark(name: str, since: float) -> None:
+        timings[name] = round((time.perf_counter() - since) * 1000, 1)
+
+    # Hard wall-clock deadline for the whole OCR phase so recognition always
+    # returns well under the frontend's 25s timeout, even on a slow/cold host.
+    ocr_deadline = started + _OCR_PHASE_BUDGET_S
+
+    stage = time.perf_counter()
     image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("画像を読み取れませんでした")
+    _mark("decode", stage)
+
+    stage = time.perf_counter()
     processed = _preprocess_image(image)
+    _mark("preprocess", stage)
     gray, binary = processed.gray, processed.binary
+
+    stage = time.perf_counter()
     boxes = _detect_states(processed.state_binary)
+    _mark("detect_states", stage)
     mapped_boxes = [_map_box(box, processed.inverse_transform, image.shape[:2]) for box in boxes]
     structure_confidence = min(0.82, max(0.5, 0.62 + processed.quality * 0.2))
     states = [
@@ -1036,7 +1068,9 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     ]
     transitions: list[RecognizedTransition] = []
     transition_debug=[]
+    stage = time.perf_counter()
     detected_transitions = _detect_transitions(binary, boxes, transition_debug)
+    _mark("detect_transitions", stage)
     for index, detected in enumerate(detected_transitions):
         source, target, p1, p2, confidence = detected[:5]
         direction_confirmed = detected[5] if len(detected) > 5 else confidence >= .7
@@ -1060,13 +1094,25 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     warnings = []
     ocr_regions: list[_OcrRegion] = []
     ocr_failed = False
-    if shutil.which("tesseract"):
-        try:
-            ocr_regions = _extract_ocr_regions(gray)
-        except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
-            ocr_failed = True
-    else:
+    ocr_truncated = False
+    if not shutil.which("tesseract"):
         ocr_failed = True
+    elif not boxes and not detected_transitions:
+        pass  # nothing to label
+    else:
+        stage = time.perf_counter()
+        _available_ocr_language()  # first call spawns `tesseract --list-langs`; cached after
+        _mark("tesseract_startup", stage)
+        if time.perf_counter() >= ocr_deadline:
+            ocr_truncated = True
+        else:
+            try:
+                stage = time.perf_counter()
+                ocr_regions = _extract_ocr_regions(gray)
+                _mark("global_ocr", stage)
+            except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError, RuntimeError):
+                ocr_failed = True
+    local_ocr_started = time.perf_counter()
 
     state_ocr, transition_ocr = _associate_ocr_regions(
         ocr_regions,
@@ -1075,20 +1121,43 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
     )
     low_ocr_labels: list[str] = []
     unread_labels: list[str] = []
-    # A confident whole-image reading is kept as-is; only weak ones run the local
-    # crop pass, which itself escalates to extra PSMs only when still weak.
+    # A confident whole-image reading is kept as-is; the rest are read together in
+    # one batched (montage) Tesseract call instead of one call per ROI.
     global_trust = 0.78
-    ocr_budget = _OcrBudget()
-    roi_cache: dict = {}
-    for state, box, regions in zip(states, boxes, state_ocr):
-        global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
+    state_global = [_combine_ocr_regions(regions) if regions else ("", 0.0) for regions in state_ocr]
+    transition_global = [_combine_ocr_regions(regions) if regions else ("", 0.0) for regions in transition_ocr]
+
+    batched: dict = {}
+    if not ocr_failed and time.perf_counter() < ocr_deadline:
+        weak_rois: list[tuple[object, tuple[int, int, int, int], float]] = []
+        for index, (box, (_, confidence)) in enumerate(zip(boxes, state_global)):
+            if confidence < global_trust:
+                weak_rois.append((("s", index), box, 0.16))
+        for index, (detected, (_, confidence)) in enumerate(zip(detected_transitions, transition_global)):
+            if confidence < global_trust:
+                weak_rois.append((("t", index), _transition_label_roi(detected[2], detected[3]), 0.0))
+        if weak_rois:
+            stage = time.perf_counter()
+            batched = _read_labels_batched(processed.ocr_gray, weak_rois)
+            retry = [
+                (key, box, margin) for key, box, margin in weak_rois
+                if (batched.get(key) is None or batched[key].confidence < 0.6)
+            ]
+            if retry and time.perf_counter() < ocr_deadline:
+                for key, region in _read_labels_batched(processed.ocr_gray, retry, binarized=True).items():
+                    if region is not None and (batched.get(key) is None or region.confidence > batched[key].confidence):
+                        batched[key] = region
+            _mark("local_ocr_batch", stage)
+
+    for index, (state, regions) in enumerate(zip(states, state_ocr)):
+        global_text, global_confidence = state_global[index]
         if ocr_failed or global_confidence >= global_trust:
             text, confidence = global_text, global_confidence
+        elif not batched and time.perf_counter() >= ocr_deadline:
+            ocr_truncated = True
+            text, confidence = global_text, global_confidence
         else:
-            local = _read_label_from_roi(
-                processed.ocr_gray, box, inner_margin_ratio=0.16, budget=ocr_budget, cache=roi_cache
-            )
-            text, confidence = _resolve_label(global_text, global_confidence, local)
+            text, confidence = _resolve_label(global_text, global_confidence, batched.get(("s", index)))
         if not text:
             state.confidence = min(state.confidence, 0.58)
             unread_labels.append(state.name)
@@ -1099,15 +1168,15 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
         else:
             state.confidence = min(state.confidence, round(confidence, 2))
             low_ocr_labels.append(f"{state.name} ({confidence:.0%})")
-    for transition, detected, regions in zip(transitions, detected_transitions, transition_ocr):
-        global_text, global_confidence = _combine_ocr_regions(regions) if regions else ("", 0.0)
+    for index, transition in enumerate(transitions):
+        global_text, global_confidence = transition_global[index]
         if ocr_failed or global_confidence >= global_trust:
             text, confidence = global_text, global_confidence
+        elif not batched and time.perf_counter() >= ocr_deadline:
+            ocr_truncated = True
+            text, confidence = global_text, global_confidence
         else:
-            local = _read_label_from_roi(
-                processed.ocr_gray, _transition_label_roi(detected[2], detected[3]),
-                inner_margin_ratio=0.0, budget=ocr_budget, cache=roi_cache,
-            )
+            local = batched.get(("t", index))
             if local is not None and _state_ocr_owner(local, boxes) is not None:
                 local = None  # midpoint crop drifted into a state; ignore it
             text, confidence = _resolve_label(global_text, global_confidence, local)
@@ -1122,6 +1191,10 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
             transition.confidence = min(transition.confidence, round(confidence, 2))
             low_ocr_labels.append(f"{transition.event} ({confidence:.0%})")
 
+    timings["local_ocr"] = round((time.perf_counter() - local_ocr_started) * 1000, 1)
+
+    if ocr_truncated and (states or transitions):
+        warnings.append("処理時間の都合で一部の名前は仮名のままです。Reviewで確認してください。")
     if ocr_failed and (states or transitions):
         warnings.append("OCRを利用できなかったため、名前は仮名です。Reviewで修正してください。")
     elif low_ocr_labels:
@@ -1142,4 +1215,7 @@ def recognize_image(data: bytes, *, _debug: dict | None = None) -> RecognitionRe
         warnings.append(f"方向の確信度が低い遷移が{unconfirmed_directions}件あります。Reviewでsource / targetを確認してください。")
     if any(item.confidence < 0.7 for item in [*states, *transitions]):
         warnings.append("読み取りを確認してください。薄い線や矢印方向は誤認識することがあります。")
+    timings["total"] = round((time.perf_counter() - started) * 1000, 1)
+    if _debug is not None:
+        _debug["timings"] = timings
     return RecognitionResult(states=states, transitions=transitions, warnings=warnings, processing_ms=round((time.perf_counter() - started) * 1000, 2))
